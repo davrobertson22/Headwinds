@@ -134,6 +134,25 @@ function guardConfigureAircraftBulk(payload, state) {
   return { aircraftIds: ids, config: nextConfig, reconfCost };
 }
 
+// Change the cabin of orders still on the queue (one, or every order of a
+// type). Only the airline's own undelivered, factory-new orders of ONE type;
+// the layout must fit that airframe. The price is the reducer's
+// (orderCabinChangeCost against each order's own cabin), never the client's.
+function guardSetOrderCabin(payload, state) {
+  const raw = Array.isArray(payload.orderIds) ? payload.orderIds : [];
+  if (raw.length === 0) throw new GuardError('No orders selected.');
+  if (raw.length > 500) throw new GuardError('Too many orders in one batch.');
+  const own = new Map((state.pendingOrders ?? []).filter((o) => o && !o.used).map((o) => [o.id, o]));
+  const ids = [...new Set(raw.map(String))].filter((id) => own.has(id));
+  if (ids.length === 0) throw new GuardError('Unknown order.');
+  const typeIds = new Set(ids.map((id) => own.get(id).typeId));
+  if (typeIds.size !== 1) throw new GuardError('Orders of one aircraft type only.');
+  const config = payload.config;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) throw new GuardError('Invalid cabin configuration.');
+  assertConfigFitsAirframe(config, getAircraftType([...typeIds][0]));
+  return { orderIds: ids, config };
+}
+
 function guardOrderAircraft(payload) {
   // Bound the order size (the reducer also clamps to 100) — reject absurd values early.
   if (payload.quantity != null) {
@@ -902,6 +921,7 @@ export function guardDecision(type, payload, state) {
     case 'CONFIGURE_AIRCRAFT_BULK': return guardConfigureAircraftBulk(payload, state);
     case 'ORDER_AIRCRAFT':     return guardOrderAircraft(payload);
     case 'SET_ORDER_REPLACEMENT': return guardSetOrderReplacement(payload);
+    case 'SET_ORDER_CABIN':       return guardSetOrderCabin(payload, state);
     case 'SET_TYPE_REPLACEMENT':  return guardSetTypeReplacement(payload);
     case 'CLEAR_FLEET_REPLACEMENT': {
       if (!isShortId(payload.aircraftId)) throw new GuardError('Invalid aircraft.');

@@ -2109,6 +2109,7 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   const [checkedIds,    setCheckedIds]    = useState(initialCheckedIds);   // bulk selection
   const [bulkFlightsOpen, setBulkFlightsOpen] = useState(false); // selection bar ▸ Flights/wk
   const [bulkConfigIds, setBulkConfigIds] = useState(null); // array of ids → bulk configure modal
+  const [cabinOrderIds, setCabinOrderIds] = useState(null); // order ids → cabin designer for orders on the queue
   const [bulkReplaceIds, setBulkReplaceIds] = useState(null); // array of ids → bulk replace modal
   const [search,        setSearch]        = useState('');
   const [filterChip,    setFilterChip]    = useState('all'); // all | idle | reserve | grounded | leased | owned
@@ -3007,7 +3008,19 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
                       </div>
                       <LinePlace place={orderLinePlace(state, order, currentAbsWeek)} />
                     </td>
-                    <td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {/* The cabin it is delivered with: fitted on the line, no refit after delivery. */}
+                      {!order.used && type && !type.freighter && (
+                        <button
+                          className="btn btn-ghost"
+                          data-order-cabin={order.id}
+                          style={{ padding: '3px 10px', fontSize: 11, marginRight: 6 }}
+                          title="Change the cabin this aircraft is delivered with"
+                          onClick={() => setCabinOrderIds([order.id])}
+                        >
+                          Cabin
+                        </button>
+                      )}
                       <button
                         className="btn"
                         style={{
@@ -3617,6 +3630,14 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
           aircraftIds={bulkReplaceIds}
           onOrdered={() => setCheckedIds([])}
           onClose={() => setBulkReplaceIds(null)}
+        />
+      )}
+
+      {/* Cabin designer for orders still on the queue */}
+      {cabinOrderIds && (
+        <FleetConfig
+          orderIds={cabinOrderIds}
+          onClose={() => setCabinOrderIds(null)}
         />
       )}
 

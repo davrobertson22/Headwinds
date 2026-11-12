@@ -21,9 +21,11 @@ import {
   classSpaceUnits,
   calendarYear,
   SERVICE_QUALITY_COST_PER_ROUTE,
+  newAircraftConfig,
+  orderCabinChangeCost,
 } from '../utils/simulation.js';
 import { isOutOfService } from '../data/maintenance.js';
-import { CABIN_KEYS, productWeeklyCost, cabinProductPoints, defaultProducts, compactProducts } from '../data/seatProducts.js';
+import { CABIN_KEYS, productWeeklyCost, cabinProductPoints, defaultProducts, compactProducts, productOf } from '../data/seatProducts.js';
 import { SEAT_QUALITY_POINTS, SERVICE_QUALITY_POINTS } from '../models/demand.js';
 
 const SERVICE_OPTIONS = [
@@ -57,28 +59,62 @@ export function refitDowntimeNote(weeks, isBulk) {
        + `${isBulk ? 'they fly' : 'it flies'} stop earning until the work is done.`;
 }
 
-export default function FleetConfig({ aircraftId, aircraftIds = null, onClose }) {
+/**
+ * The parts of a cabin an order can be delivered with, as one comparable key:
+ * two configs with the same key fit the same cabin.
+ */
+export function cabinKey(cfg) {
+  if (!cfg) return '';
+  const prods = CABIN_KEYS.map(k => {
+    const { tier, extras } = productOf(cfg, k);
+    return `${tier.key}:${extras.map(e => e.key).sort().join('+')}`;
+  });
+  return JSON.stringify([cfg.firstClass ?? 0, cfg.businessClass ?? 0, cfg.premiumEconomy ?? 0, cfg.economy ?? 0,
+    cfg.seatQuality ?? 'basic', cfg.serviceQuality ?? 'standard', prods]);
+}
+
+/**
+ * The cabin designer, for aircraft (a refit) or for aircraft still on order.
+ *   aircraftId / aircraftIds   refit one tail, or a same-type selection
+ *   orderIds                   orders on the queue: the cabin is fitted on the
+ *                              production line, so the frame is delivered with
+ *                              it — no refit, no shop time (SET_ORDER_CABIN)
+ */
+export default function FleetConfig({ aircraftId, aircraftIds = null, orderIds = null, onClose }) {
   const { state, dispatch } = useGame();
+  const orderMode = Array.isArray(orderIds);
+  // Order mode: one tick applies the cabin to every undelivered order of the type.
+  const [applyAll, setApplyAll] = useState(false);
 
   // Bulk mode: aircraftIds is an array of same-type aircraft; the layout chosen
   // here is applied to all of them (each pays its own refit cost).
-  const targetIds = aircraftIds ?? (aircraftId ? [aircraftId] : []);
-  const selected  = state.fleet.filter(a => targetIds.includes(a.id));
+  const targetIds = orderMode ? orderIds : (aircraftIds ?? (aircraftId ? [aircraftId] : []));
+  const queue     = (state.pendingOrders ?? []).filter(o => !o.used);
+  const picked    = orderMode
+    ? queue.filter(o => targetIds.includes(o.id))
+    : state.fleet.filter(a => targetIds.includes(a.id));
+  // Every undelivered order of the picked type: what "apply to all" reaches.
+  const sameType  = orderMode && picked[0] ? queue.filter(o => o.typeId === picked[0].typeId) : [];
+  const selected  = orderMode && applyAll ? sameType : picked;
   // A refit needs the hangar. A tail already in a heavy check or grounded by a
   // failure cannot take a cabin job without cancelling the work it is there
   // for, so the reducer refuses it — say so here rather than letting the player
-  // press Confirm on aircraft that will silently be left out.
-  const targets   = selected.filter(a => !isOutOfService(a));
-  const inShop    = selected.filter(a => isOutOfService(a));
+  // press Confirm on aircraft that will silently be left out. (An order has no
+  // hangar to be in.)
+  const targets   = orderMode ? selected : selected.filter(a => !isOutOfService(a));
+  const inShop    = orderMode ? [] : selected.filter(a => isOutOfService(a));
   const isBulk    = targets.length > 1;
 
   // Falls back to a shop-bound tail so the modal still renders (and explains
   // itself) when every selected aircraft is out of service.
-  const aircraft = targets[0] ?? selected[0];
+  // On order, the picked order stays the reference when "apply to all" widens the set.
+  const aircraft = orderMode ? (picked[0] ?? targets[0]) : (targets[0] ?? selected[0]);
   const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
 
   const maxSeats = type?.seats ?? 0;
-  const current  = aircraft?.config ?? defaultConfig(maxSeats);
+  // An order placed without a cabin is delivered at the type's typical seating.
+  const baseOf   = (a) => a?.config ?? (orderMode && type ? newAircraftConfig(type) : defaultConfig(maxSeats));
+  const current  = baseOf(aircraft);
 
   const [first,  setFirst]  = useState(current.firstClass     ?? 0);
   const [biz,    setBiz]    = useState(current.businessClass  ?? 0);
@@ -176,20 +212,31 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
   const leisurePts  = sharedPts + productPts.leisure;
   const businessPts = sharedPts + productPts.business;
   const productsWeekly = productWeeklyCost(nextConfig);
-  const perAircraftCosts = targets.map(a =>
-    calcReconfCost(a.config ?? defaultConfig(maxSeats), nextConfig)
+  // An order pays the difference in line fitting (the reducer's own
+  // orderCabinChangeCost); a tail pays the refit.
+  const perAircraftCosts = targets.map(a => orderMode
+    ? orderCabinChangeCost(baseOf(a), nextConfig)
+    : calcReconfCost(a.config ?? defaultConfig(maxSeats), nextConfig)
   );
   const reconfCost = perAircraftCosts.reduce((s, c) => s + c, 0);
   const canAfford  = state.cash >= reconfCost;
-  const noChange   = reconfCost === 0;
+  // On order, taking something out or changing the service is free but still a
+  // change worth saving; on a tail, a free refit changes nothing billable.
+  const nextKey    = cabinKey(nextConfig);
+  const noChange   = orderMode ? targets.every(a => cabinKey(baseOf(a)) === nextKey) : reconfCost === 0;
   // Shop time, from the same function the reducer grounds the tail with — so
   // the number promised here is the number the player gets.
-  const downWeeks  = targets.length
+  const downWeeks  = !orderMode && targets.length
     ? Math.max(...targets.map(a => refitWeeks(getAircraftType(a.typeId), a.config ?? defaultConfig(maxSeats), nextConfig)))
     : 0;
 
   function handleSave() {
     if (over || !canAfford || targets.length === 0) return;
+    if (orderMode) {
+      dispatch({ type: 'SET_ORDER_CABIN', orderIds: targets.map(o => o.id), config: nextConfig });
+      onClose();
+      return;
+    }
     // One atomic action instead of N serialized CONFIGURE_AIRCRAFT dispatches:
     // the whole batch reconfigures (and is charged once, for the summed cost) or
     // not at all — no partially-refit fleet if a mid-loop server write is refused
@@ -228,7 +275,9 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>
-              {isBulk ? `Configure ${targets.length} × ${type.name}` : `Configure ${aircraft.name}`}
+              {orderMode
+                ? (isBulk ? `Cabin for ${targets.length} × ${type.name} on order` : `Cabin for ${aircraft.name} (on order)`)
+                : (isBulk ? `Configure ${targets.length} × ${type.name}` : `Configure ${aircraft.name}`)}
             </h2>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {type.name} · {maxSeats} total seats · Current cash: <strong style={{ color: 'var(--green)' }}>{formatMoney(state.cash)}</strong>
@@ -237,6 +286,12 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, maxWidth: 420 }}>
                 Applying to: {targets.slice(0, 6).map(a => a.name).join(', ')}{targets.length > 6 ? `, +${targets.length - 6} more` : ''}
               </div>
+            )}
+            {orderMode && sameType.length > picked.length && (
+              <label data-apply-all style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={applyAll} onChange={e => setApplyAll(e.target.checked)} />
+                Apply to all {sameType.length} {type.name} orders still to be delivered
+              </label>
             )}
           </div>
           <button className="btn btn-ghost" style={{ padding: '4px 10px', flexShrink: 0 }} onClick={onClose}><Glyph e="✕" /></button>
@@ -268,8 +323,9 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
             Set seats per cabin, or hit Max to fill the remaining floor with one class.
-            Refits cost $2,500 per seat moved, plus an install fee for new premium seats
-            ($200 prem-eco, $500 business, $1,000 first).
+            {orderMode
+              ? ' Fitted on the production line: no charge for moving seats, only the install fee for new premium seats ($200 prem-eco, $500 business, $1,000 first), the seat grade and any seat products.'
+              : ' Refits cost $2,500 per seat moved, plus an install fee for new premium seats ($200 prem-eco, $500 business, $1,000 first).'}
           </div>
 
           <CabinTemplatePicker
@@ -454,11 +510,14 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  Reconfiguration cost: <span style={{ color: canAfford ? 'var(--accent)' : 'var(--red)' }}>{formatMoney(reconfCost)}</span>
-                  {isBulk && <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>across {targets.length} aircraft</span>}
+                  {orderMode ? 'Fitting on the line: ' : 'Reconfiguration cost: '}
+                  <span style={{ color: canAfford ? 'var(--accent)' : 'var(--red)' }}>{orderMode && reconfCost === 0 ? 'no charge' : formatMoney(reconfCost)}</span>
+                  {isBulk && <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>across {targets.length} {orderMode ? 'orders' : 'aircraft'}</span>}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Paid immediately. {refitDowntimeNote(downWeeks, isBulk)}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }} data-order-cabin-note={orderMode ? '' : undefined}>
+                  {orderMode
+                    ? `${reconfCost > 0 ? 'Paid now. ' : ''}${isBulk ? 'Each aircraft is' : 'The aircraft is'} delivered with this cabin: no refit and no downtime.`
+                    : <>Paid immediately. {refitDowntimeNote(downWeeks, isBulk)}</>}
                 </div>
               </div>
               {!canAfford && (
@@ -476,7 +535,10 @@ export default function FleetConfig({ aircraftId, aircraftIds = null, onClose })
             onClick={handleSave}
             disabled={over || targets.length === 0 || (!noChange && !canAfford)}
           >
-            {noChange ? 'No Changes' : `Confirm Refit${isBulk ? ` (${targets.length} aircraft)` : ''} · ${formatMoney(reconfCost)}`}
+            {noChange ? 'No Changes'
+              : orderMode
+                ? `Save cabin${isBulk ? ` (${targets.length} orders)` : ''}${reconfCost > 0 ? ` · ${formatMoney(reconfCost)}` : ''}`
+                : `Confirm Refit${isBulk ? ` (${targets.length} aircraft)` : ''} · ${formatMoney(reconfCost)}`}
           </button>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         </div>

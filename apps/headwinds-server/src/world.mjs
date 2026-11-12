@@ -35,6 +35,9 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // delivered tail waiting to take over. The reducer re-runs every check.
   // SET_TYPE_REPLACEMENT tags a whole type's orders at once (or clears them).
   'SET_ORDER_REPLACEMENT', 'SET_TYPE_REPLACEMENT', 'CLEAR_FLEET_REPLACEMENT',
+  // The cabin an order on the queue is delivered with (layout, grades, seat
+  // products). The reducer prices it; the guard bounds the ids and the floor.
+  'SET_ORDER_CABIN',
   'SCHEDULE_CHECK', 'CANCEL_SCHEDULED_CHECK',
   'SET_RESERVE', 'CLEAR_RESERVE',
   // Jet bases (MRO network). Capex, gate holdings and level progression are

@@ -710,6 +710,25 @@ export function cabinInstallFee(config) {
        + (config?.premiumEconomy ?? 0) * CABIN_INSTALL_FEE_PER_SEAT.premiumEconomy;
 }
 
+// What a cabin costs to fit on the production line, per aircraft: the seat
+// grade, the install fee for the premium seats and any seat products.
+// ORDER_AIRCRAFT charges it at signing; SET_ORDER_CABIN charges the difference
+// when an order's cabin is changed before delivery. One function, so the two
+// cannot drift apart.
+export function lineFitCost(config) {
+  if (!config) return 0;
+  return (SEAT_QUALITY_FITTING_FEE[config.seatQuality ?? 'basic'] ?? 0)
+       + cabinInstallFee(config)
+       + productFittingCost(null, config);
+}
+
+// Changing the cabin of an aircraft still on order: it has not been built yet,
+// so it pays the difference in line fitting and nothing for labour or shop
+// time. Taking things out is free, as on a refit (no refunds).
+export function orderCabinChangeCost(current, next) {
+  return Math.max(0, lineFitCost(next) - lineFitCost(current));
+}
+
 // ─── Cabin refit: cost + downtime ────────────────────────────────────────────
 // ONE definition of what a reconfigure costs and how long it grounds the tail.
 // This used to live in src/components/FleetConfig.jsx with a hand-kept copy in

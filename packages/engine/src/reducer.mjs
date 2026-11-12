@@ -14,7 +14,7 @@ import { productDenial, productFittingCost } from './data/seatProducts.js';
 import {
   weeklyTick, defaultConfig,
   weeklyBlockHours, maxWeeklyBlockHoursFor, SLOTS_PER_GATE, routeDistanceKm,
-  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, maxFrequency, effectiveRangeKm, cabinRangeFix, newAircraftConfig, grandfatherRouteRanges, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
+  CLASS_FARE_MULTIPLIERS, SEAT_QUALITY_FITTING_FEE, cabinInstallFee, lineFitCost, orderCabinChangeCost, configSeatUnits, maxFrequency, effectiveRangeKm, cabinRangeFix, newAircraftConfig, grandfatherRouteRanges, weekToGameDate, shortYearLabel, calendarYear, calendarYearFrac,
   routePairKey, defaultClassPrices, clampClassPrice, hydrateRoute, normalizeRouteStops,
   routeStops, routeLegs, routeSegments, routeSegmentKey, isMultiStop,
   routeMaxLegKm, routeBlockHours, referencePrice as routeReferencePrice,
@@ -34,7 +34,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          freeFloatOf, executionPrice, capitalGainsTax, repriceForShareChange,
          priceImpact, poolLiquidityDiscount,
          CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
-         founderSaleProceeds, offeringPoolLimit, isSameLocation } from './utils/market.js';
+         founderSaleProceeds, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
 import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, setLeaseCycleMult, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
@@ -2293,10 +2293,10 @@ function reducer(state, action) {
       let cashBalance    = state.cash;
       // One-off seat-quality fitting fee (per aircraft) for seats above basic economy,
       // plus the per-seat install fee for any premium cabins (first/business/prem-eco).
-      const seatFittingFee = (SEAT_QUALITY_FITTING_FEE[action.config?.seatQuality ?? 'basic'] ?? 0)
-                           + cabinInstallFee(action.config)
-                           // Seat products fitted on the line (lie-flats, suites, screens).
-                           + productFittingCost(null, action.config);
+      // Seat grade, premium-seat install and seat products (lie-flats, suites,
+      // screens), all fitted on the line: lineFitCost, the same figure
+      // SET_ORDER_CABIN charges the difference of.
+      const seatFittingFee = lineFitCost(action.config);
       // Onboard connectivity, fitted on the production line. Cheaper than the
       // retrofit (see data/wifi.js), which is the entire reason this is a
       // decision at order time rather than something you get round to later.
@@ -2732,6 +2732,67 @@ function reducer(state, action) {
           o.id === action.orderId ? { ...o, name } : o
         ),
       };
+    }
+
+    case 'SET_ORDER_CABIN': {
+      // action: { orderIds: [...], config }
+      // Change the cabin an order still on the queue will be delivered with:
+      // layout, seat grade, service and seat products are fitted on the line,
+      // so the frame arrives ready to fly — no refit, no shop time. Orders
+      // placed before the cabin designer reached the order form (Discord
+      // 2026-11-11: "have to reconfigure everything immediately after each
+      // delivery") were otherwise stuck with a post-delivery refit.
+      // Each order pays the difference in line fitting (orderCabinChangeCost);
+      // taking things out is free, as on a refit. A used-market order delivers
+      // the tail as it was sold, and a freighter has no cabin: neither changes.
+      const ids = new Set((Array.isArray(action.orderIds) ? action.orderIds : [action.orderId]).filter(Boolean));
+      const cfg = action.config;
+      if (ids.size === 0 || !cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return state;
+      const pending = state.pendingOrders ?? [];
+      const targets = pending.filter(o => ids.has(o.id) && !o.used);
+      if (targets.length === 0) return state;
+      const typeId = targets[0].typeId;
+      if (targets.some(o => o.typeId !== typeId)) return state;
+      const type = getAircraftType(typeId);
+      if (!type || type.freighter) return state;
+      const countsOk = ['firstClass', 'businessClass', 'premiumEconomy', 'economy']
+        .every(k => cfg[k] == null || (Number.isInteger(cfg[k]) && cfg[k] >= 0));
+      if (!countsOk || configSeatUnits(cfg) > (type.seats ?? 0) + 0.001) {
+        return { ...state, error: `That cabin does not fit a ${type.name}.` };
+      }
+      const refused = refuseCabinProducts(state, cfg, type);
+      if (refused) return refused;
+      const cost = targets.reduce((sum, o) => sum + orderCabinChangeCost(o.config ?? newAircraftConfig(type), cfg), 0);
+      if (cost > state.cash) {
+        return { ...state, error: `Not enough cash to fit ${targets.length === 1 ? 'this cabin' : `${targets.length} cabins`} (${formatMoney(cost)}).` };
+      }
+      const changed = new Set(targets.map(o => o.id));
+      let next = {
+        ...state,
+        cash: state.cash - cost,
+        pendingOrders: pending.map(o => (changed.has(o.id) ? { ...o, config: cfg } : o)),
+      };
+      // A denser or lighter cabin moves range, so an order named to replace a
+      // tail may no longer be able to take over its routes. Drop those tags
+      // (the replacement picker will say why) rather than fail at delivery.
+      const unfit = next.pendingOrders.filter(o =>
+        changed.has(o.id) && o.replacesAircraftId && !replacementCompatibility(next, o, o.replacesAircraftId).ok);
+      if (unfit.length > 0) {
+        const drop = new Set(unfit.map(o => o.id));
+        next = {
+          ...next,
+          pendingOrders: next.pendingOrders.map(o => {
+            if (!drop.has(o.id)) return o;
+            const { replacesAircraftId: _a, replacesName: _n, replaceDisposal: _d, ...rest } = o;
+            return rest;
+          }),
+          pendingToasts: [...(next.pendingToasts ?? []), {
+            type: 'warning', icon: '🔁', title: 'Replacement cleared',
+            message: `${unfit.length === 1 ? `${unfit[0].name} can no longer` : `${unfit.length} orders can no longer`} take over the routes of the aircraft ${unfit.length === 1 ? 'it was' : 'they were'} replacing with this cabin.`,
+          }],
+        };
+      }
+      return next;
     }
 
     case 'RETIRE_AIRCRAFT': {
@@ -8005,11 +8066,8 @@ function reducer(state, action) {
       // rather than refusing the whole listing: a big airline floating onto a
       // small exchange gets a small float, which is the realistic outcome and
       // beats a button that silently does nothing.
-      // One offering may take at most POOL_OFFERING_SHARE_MAX of what the pool
-      // holds (offeringPoolLimit), so the first big listing cannot shut the
-      // equity window on everyone after it.
       const mk       = state.worldMarket;
-      const poolCash = offeringPoolLimit(mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : null);
+      const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
       const sold     = Math.min(offered, Math.floor(poolCash / price));
       // A short fill takes the NEW shares first. The company's need for capital
       // ranks ahead of the founder cashing out, and it stops a trimmed offering
@@ -8112,10 +8170,9 @@ function reducer(state, action) {
       const basePrice = state.sharePrice ?? ((state.marketCap ?? 0) / shares);
       const price     = basePrice * (1 - discount);
       if (!(price > 0)) return state;
-      // Partially subscribed if the pool is short of cash — same rule, and the
-      // same per-offering limit, as the IPO.
+      // Partially subscribed if the pool is short of cash — same rule as the IPO.
       const mk       = state.worldMarket;
-      const poolCash = offeringPoolLimit(mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : null);
+      const poolCash = mk && Number.isFinite(mk.poolCash) ? Math.max(0, mk.poolCash) : Infinity;
       const issued   = Math.min(n, Math.floor(poolCash / price));
       const proceeds = Math.min(Math.round(issued * price), Math.floor(poolCash));
       if (!(issued > 0) || proceeds < Math.min(STOCK_MARKET.MIN_TICKET, Math.round(n * price))) {
