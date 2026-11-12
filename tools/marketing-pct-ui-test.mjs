@@ -1,4 +1,4 @@
-// Server-renders the REAL Operations screen with brand marketing pinned to a
+// Server-renders the REAL marketing card (on the Brand page since Nov 2026) with brand marketing pinned to a
 // share of revenue — the UI half of tools/marketing-pct-test.mjs.
 //
 //   1. Fixed mode looks as before, with a mode switch offered.
@@ -30,10 +30,10 @@ function test(name, fn) {
   catch (e) { console.log(`  ✗ ${name}\n      ${(e.stack || e.message).split('\n').slice(0, 4).join('\n      ')}`); failed++; }
 }
 
-console.log('\nBrand marketing % of revenue — Operations renders it\n');
+console.log('\nBrand marketing % of revenue — the marketing card renders it\n');
 
 const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
-const Operations = (await import('../src/components/Operations.jsx')).default;
+const MarketingPanel = (await import('../src/components/MarketingPanel.jsx')).default;
 
 const REVENUE = 8_000_000;
 function seed(extra = {}) {
@@ -45,7 +45,7 @@ function seed(extra = {}) {
   };
   store.set('bbae_save_v2', JSON.stringify(save));
 }
-const render = () => renderToString(React.createElement(GameProvider, null, React.createElement(Operations))).replace(/<!--.*?-->/g, '');
+const render = () => renderToString(React.createElement(GameProvider, null, React.createElement(MarketingPanel))).replace(/<!--.*?-->/g, '');
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
 test('fixed mode: the $ figure, and both mode buttons', () => {

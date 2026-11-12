@@ -295,7 +295,7 @@ function adviceMarketing(state) {
     title: `Brand awareness is ${Math.round(awareness)}/100 with no marketing budget`,
     detail: `Awareness gates how many travellers consider you at all, on every route. Brand marketing builds it `
       + `slowly and it decays without spend — setting it as a share of revenue keeps it growing with the airline.`,
-    action: { label: 'Open Marketing', to: 'operations', filter: { section: 'marketing' }, focus: 'marketing-budget' },
+    action: { label: 'Open Marketing', to: 'reputation', focus: 'marketing-budget' },
   }];
 }
 

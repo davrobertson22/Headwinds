@@ -45,10 +45,9 @@ export const MAP_VIEW_PATHS = {
   operations:       `Operations${S}Crew`,
   maintenance:      `Operations${S}Maintenance`,
   fuel:             `Operations${S}Fuel`,
-  marketing:        `Service${S}Marketing`,
   catering:         `Service${S}Catering`,
   ancillaries:      `Service${S}Ancillaries`,
-  reputation:       `Service${S}Reputation`,
+  reputation:       `Service${S}Brand`,
   loyalty:          `Service${S}Loyalty`,
   partners:         `Service${S}Partnerships`,
   'fin-statements': `Finance${S}Statements`,
@@ -89,8 +88,8 @@ export const SCREEN_GUIDE = [
     what: 'Hubs and focus cities: designate and upgrade them for connecting traffic.' },
   { key: 'crew', tab: 'operations', sub: 'Labour & Costs', map: 'operations',
     what: 'Staff pay rates against the market rate, hiring crew, crew shortfalls, unions and strikes.' },
-  { key: 'marketing', tab: 'operations', sub: 'Labour & Costs', map: 'marketing',
-    what: 'Brand marketing budget (fixed, or a share of revenue) and targeted airport campaigns.' },
+  { key: 'marketing', tab: 'reputation', map: 'reputation',
+    what: 'Brand marketing budget (fixed, or a share of revenue) and targeted airport campaigns, on the Brand page.' },
   { key: 'catering', tab: 'operations', sub: 'Labour & Costs', map: 'catering',
     what: 'Default catering, your own service plans, and catering contracts.' },
   { key: 'departures', tab: 'operations', sub: 'Departure Board', map: 'departures',
@@ -102,7 +101,7 @@ export const SCREEN_GUIDE = [
   { key: 'ancillaries', tab: 'ancillaries', map: 'ancillaries',
     what: 'Bags, seat selection and other extras sold on top of the fare.' },
   { key: 'reputation', tab: 'reputation', map: 'reputation',
-    what: 'Reputation and what drives it, staff morale, market positioning.' },
+    what: 'How business and leisure travellers rate you against rivals and why, your quality score, marketing, reputation and market positioning.' },
   { key: 'loyalty', tab: 'loyalty', map: 'loyalty',
     what: 'The loyalty programme: budget, members, elite status, city loyalty.' },
   { key: 'partners', tab: 'partners', map: 'partners', when: (s) => s?.partnershipsWorld === true,
@@ -166,7 +165,7 @@ export function actionPaths(action, { remote = false } = {}) {
   const f = action.filter ?? {};
   let key = action.to;
   if (action.to === 'finance') key = f.view === 'fuel' ? 'fuel' : (f.view === 'loans' || f.view === 'forecast') ? 'loans' : 'statements';
-  else if (action.to === 'operations') key = f.section === 'marketing' ? 'marketing' : f.section === 'catering' ? 'catering' : 'crew';
+  else if (action.to === 'operations') key = f.section === 'catering' ? 'catering' : 'crew';
   const e = BY_KEY[key];
   if (!e) return null;
   let classic = classicPath(e, remote);

@@ -84,9 +84,9 @@ test('vrt1ty\'s example: fuel is Finance ▸ Planning ▸ Fuel, and Operations �
 test('Advisor actions resolve to the exact sub-page and filter, not just the tab', () => {
   assert.equal(actionPathText({ to: 'finance', filter: { view: 'fuel' } }), `Finance${S}Planning${S}Fuel (map view: Operations${S}Fuel)`);
   assert.equal(actionPaths({ to: 'finance', filter: { view: 'loans' } }).classic, `Finance${S}Planning${S}Loans / Forecast`);
-  const mk = actionPaths({ to: 'operations', filter: { section: 'marketing' } });
-  assert.equal(mk.classic, `Company${S}Operations${S}Labour & Costs`);
-  assert.equal(mk.map, `Service${S}Marketing`);
+  const mk = actionPaths({ to: 'reputation', focus: 'marketing-budget' });
+  assert.equal(mk.classic, `Company${S}Brand`);
+  assert.equal(mk.map, `Service${S}Brand`);
   assert.match(actionPathText({ to: 'routes', filter: { filterTab: 'unprofitable' } }), /Network ▸ Routes \(the Losing filter\)/);
   assert.equal(actionPathText({ to: 'finder', filter: { typeId: 'b737800' } }), `Network${S}Route Finder (map view: Search${S}Route Finder)`);
   assert.equal(actionPaths({ to: 'nowhere' }), null);

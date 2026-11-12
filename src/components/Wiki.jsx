@@ -476,9 +476,11 @@ const WIKI = [
   {
     id: 'reputation',
     icon: '⭐',
-    title: 'Reputation',
-    blurb: 'Your brand and positioning',
+    title: 'Brand',
+    blurb: 'Why travellers pick you, and your reputation',
     blocks: [
+      { p: 'The **Brand** page (Company \u25b8 Brand; Service \u25b8 Brand in the map view) answers one question for each kind of traveller: on routes where they have a choice, do they pick you or a rival, and why? Business and leisure travellers each get a verdict from **Weak** to **Excellent** and the two or three things helping or hurting most. They weigh things differently: leisure travellers care most about price and are twice as swayed by targeted campaigns; business travellers care most about quality and frequency, and only they use lounges. **See all factors** shows each one and on how many of your routes you are ahead of the average rival. On a route you fly alone there is no one to beat, so those routes are left out of the verdict; there the same things decide how many people fly at all.' },
+      { p: 'Your marketing budget and targeted campaigns are on the Brand page too, below the cards.' },
       { p: 'Three scores describe how travellers see your airline, each answering one question and pulling one lever:' },
       { ul: [
         '**Quality (0–100)**: how good is the product on the plane? Built from on-time performance, cabin product, fleet age (and, in era games, design age: a type loses a point a year once it has been in service 15 years, up to 20) and your earned customer rating, plus catering, space and hub bonuses per route. Wins market share against competitors and captures business travelers. See the breakdown on any route\'s detail page.',

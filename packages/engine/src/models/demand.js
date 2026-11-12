@@ -1006,7 +1006,7 @@ export function computeConnectivityBonus(airlineHub, origin, destination, spokes
 /** Frequency utility weights in demand model v4 (see computeUtility). */
 export const FREQUENCY_WEIGHT_V4 = { leisure: 0.7, business: 1.4 };
 
-export function computeUtility(offer, market, segment) {
+export function computeUtility(offer, market, segment, out = null) {
   const w        = UTILITY_WEIGHTS[segment];
   const price    = segment === 'business' && offer.businessPrice != null
                    ? offer.businessPrice
@@ -1099,7 +1099,43 @@ export function computeUtility(offer, market, segment) {
   // without the field (jets, classic worlds, AI, synthetic connections) are 0.
   const jetUtil     = Math.log(Math.max(offer.jetAgeAppeal ?? 1, 0.01));
 
+  // The Brand page explains a carrier's pull term by term. Filling an optional
+  // out-object (rather than returning one) keeps the hot path allocation-free
+  // and makes this function the ONE place the terms are defined, so the page
+  // can never describe a different sum from the one the share fight uses.
+  if (out) {
+    out.price = priceUtil; out.quality = qualityUtil; out.frequency = freqUtil;
+    out.connectivity = connUtil; out.marketing = mktUtil; out.brand = brandUtil;
+    out.lounge = loungeUtil; out.airport = appealUtil; out.travel = travelUtil;
+    out.loyalty = loyaltyUtil; out.jetAge = jetUtil;
+  }
   return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil + travelUtil + loyaltyUtil + jetUtil;
+}
+
+/**
+ * The awareness ramp's share-fight term (market-development worlds only): a
+ * player still new on a route wins share gradually. Added on top of
+ * computeUtility by computeMarketShare; 0 for everyone else.
+ */
+export function awarenessRampUtil(market, offer) {
+  return (market?.awareness != null && market.awareness < 1 && offer?.airlineId === 'player')
+    ? Math.log(Math.max(market.awareness, 0.01)) : 0;
+}
+
+/** The terms of {@link computeUtility}, by name, plus their `total`. */
+export const UTILITY_PARTS = ['price', 'quality', 'frequency', 'connectivity', 'marketing', 'brand',
+  'lounge', 'airport', 'travel', 'loyalty', 'jetAge'];
+
+/**
+ * computeUtility, term by term: { price, quality, frequency, connectivity,
+ * marketing, brand, lounge, airport, travel, loyalty, jetAge, total }. `total`
+ * is computeUtility's own return value, so the parts always sum to exactly what
+ * the share fight scores.
+ */
+export function computeUtilityParts(offer, market, segment) {
+  const out = {};
+  out.total = computeUtility(offer, market, segment, out);
+  return out;
 }
 
 /**
@@ -1260,8 +1296,7 @@ export function computeMarketShare(market, offers, { legacy = false } = {}) {
   // gradually — but it is deliberately NOT in offersBrandCapture below: it moves
   // passengers between carriers, never out of the market. Absent everywhere
   // else (market.awareness undefined → 0).
-  const awareUtil = (o) => (market.awareness != null && market.awareness < 1 && o.airlineId === 'player')
-    ? Math.log(Math.max(market.awareness, 0.01)) : 0;
+  const awareUtil = (o) => awarenessRampUtil(market, o);
   const leisureUtils  = offers.map(o => computeUtility(o, market, 'leisure') + awareUtil(o));
   // Business softmax EXCLUDES economy-only offers (no business cabin). Otherwise a
   // cheap all-economy carrier captures business-segment share it cannot sell —

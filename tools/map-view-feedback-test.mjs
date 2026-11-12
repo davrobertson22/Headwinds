@@ -158,7 +158,8 @@ await test('3/5. Barca\'s groups, each page in exactly one', () => {
     World:      ['competition', 'alliances', 'stocks', 'news'],
     // + Advisor (2026-11-09, PRD's "AI manager" ask) — the one page that spans every group
     Operations: ['advisor', 'operations', 'maintenance', 'fuel'],
-    Service:    ['marketing', 'catering', 'ancillaries', 'reputation', 'loyalty', 'partners'],
+    // Marketing moved onto the Brand page (reputation) in Nov 2026.
+    Service:    ['reputation', 'catering', 'ancillaries', 'loyalty', 'partners'],
     Finance:    ['fin-statements', 'fin-planning', 'fin-analysis', 'fin-breakdown'],
   });
   const all = MAP_GROUPS.flatMap(g => g.pages);
@@ -181,7 +182,7 @@ await test('4. a group is one click and its pages are tabs in the panel header',
   assert.ok(/data-shell="group:search"[^>]*aria-pressed="true"/.test(html), 'Search lit in the dock');
   assert.ok(!shell('competition').includes('data-page="news"'), 'News tab only in multiplayer');
   assert.ok(shell('competition', true).includes('data-page="news"'));
-  assert.ok(!shell('marketing').includes('data-page="partners"'), 'Partnerships only in a partnerships world');
+  assert.ok(!shell('reputation').includes('data-page="partners"'), 'Partnerships only in a partnerships world');
   assert.ok(!shell(MAP_TAB).includes('class="ms-panel"'), 'map only: no panel');
 });
 
@@ -201,14 +202,13 @@ await test('deep links in classic tab ids land on the right map page', () => {
   for (const id of ['routes', 'fleet', 'market', 'airports', 'hubs', 'competition', 'dashboard', 'wiki']) assert.equal(resolveMapPage(id), id);
 });
 
-await test('Operations splits into Crew, Departures, Marketing and Catering; classic unchanged', () => {
+await test('Operations splits into Crew, Departures and Catering; marketing is on the Brand page', () => {
   const ops = (section) => inProvider(base, React.createElement(Operations, section ? { section } : {}));
   const classic = ops(null);
-  for (const s of ['Labor Groups', 'Marketing Budget', 'Catering Contracts', 'Departure Board']) assert.ok(classic.includes(s), `classic: ${s}`);
+  for (const s of ['Labor Groups', 'Catering Contracts', 'Departure Board']) assert.ok(classic.includes(s), `classic: ${s}`);
+  assert.ok(!classic.includes('Brand Marketing'), 'marketing moved to the Brand page');
   const crew = ops('crew');
   assert.ok(crew.includes('Labor Groups') && !crew.includes('Marketing Budget') && !crew.includes('Catering Contracts') && !crew.includes('Departure Board'));
-  const mk = ops('marketing');
-  assert.ok(mk.includes('Brand Marketing') && !mk.includes('Labor Groups'));
   const ct = ops('catering');
   assert.ok(ct.includes('Catering Contracts') && !ct.includes('Labor Groups') && !ct.includes('Brand Marketing'));
   const board = ops('board');

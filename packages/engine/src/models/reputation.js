@@ -122,7 +122,21 @@ export function calcReputation(state, loyaltyBonus = 0, avgUtilization = null) {
     designAgePts:   avgDesignAgePts,
   }) + effects.groundQualityBonus));
 
-  return { overall, service: serviceScore, fleet: fleetScore, network: networkScore, morale: moraleScore, qualityDemandScore, avgAgeYears, loyaltyBonus,
+  // The quality score's own parts, as computeQualityScore adds them, for the
+  // Brand page's breakdown (max: onTime 30, age 20, rating 28; cabin and the
+  // ground bonus are open-ended, designAge is 0 or a penalty).
+  const qualityParts = {
+    onTime:    effects.onTimeRate * 30,
+    cabin:     avgCabinPoints,
+    age:       Math.max(0, 20 - avgAgeYears * 1.5),
+    rating:    (effects.customerRating / 5) * 28,
+    designAge: avgDesignAgePts,
+    ground:    effects.groundQualityBonus ?? 0,
+    onTimeRate: effects.onTimeRate,
+    customerRating: effects.customerRating,
+  };
+
+  return { overall, service: serviceScore, fleet: fleetScore, network: networkScore, morale: moraleScore, qualityDemandScore, qualityParts, avgAgeYears, loyaltyBonus,
     ...(partnersTerm !== 0 || state.travelPartners ? { partners: partnersTerm } : {}) };
 }
 

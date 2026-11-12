@@ -31,7 +31,7 @@ export const TAB_LABELS = {
   operations:   'Operations',
   maintenance:  'Maintenance',
   ancillaries:  'Ancillaries',
-  reputation:   'Reputation',
+  reputation:   'Brand',
   loyalty:      'Loyalty',
   partners:     'Partnerships',
   alliances:    'Alliances',

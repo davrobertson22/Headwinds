@@ -15,7 +15,7 @@ import {
   CoinsIcon, SettingsIcon, CloseIcon, SaveIcon, FolderOpenIcon,
   DashboardIcon, MapIcon, SearchIcon, PlannerIcon, RoutesIcon, GateIcon, HubIcon, CalendarIcon,
   FleetIcon, MarketIcon, PlaneIcon, CompetitionIcon, HandshakeIcon, TrendUpIcon, NewsIcon, GlobeIcon,
-  OperationsIcon, UsersIcon, WrenchIcon, FuelIcon, MegaphoneIcon, GiftIcon, TicketIcon, RepIcon,
+  OperationsIcon, UsersIcon, WrenchIcon, FuelIcon, GiftIcon, TicketIcon, RepIcon,
   LoyaltyIcon, SeatIcon, FinanceIcon, ScaleIcon, BanknoteIcon, BarChartIcon, ClipboardIcon,
   CompassIcon, RocketIcon, BulbIcon,
 } from './Icons.jsx';
@@ -116,10 +116,9 @@ export const MAP_PAGES = {
   advisor:        { tab: 'advisor', Icon: BulbIcon },
   maintenance:    { tab: 'maintenance' },
   fuel:           { tab: 'finance', label: 'Fuel', Icon: FuelIcon },
-  marketing:      { tab: 'operations', label: 'Marketing', Icon: MegaphoneIcon },
   catering:       { tab: 'operations', label: 'Catering', Icon: GiftIcon },
   ancillaries:    { tab: 'ancillaries', Icon: TicketIcon },
-  reputation:     { tab: 'reputation', Icon: RepIcon },
+  reputation:     { tab: 'reputation', label: 'Brand', Icon: RepIcon },
   loyalty:        { tab: 'loyalty', Icon: LoyaltyIcon },
   // Travel partners exist only in worlds created with them (App.jsx hides the
   // classic tab the same way).
@@ -138,7 +137,7 @@ export const MAP_GROUPS = [
   { id: 'fleet',   label: 'Fleet',      Icon: FleetIcon,      pages: ['fleet', 'market', 'used'] },
   { id: 'world',   label: 'World',      Icon: GlobeIcon,      pages: ['competition', 'alliances', 'stocks', 'news'] },
   { id: 'ops',     label: 'Operations', short: 'Ops', Icon: OperationsIcon, pages: ['advisor', 'operations', 'maintenance', 'fuel'] },
-  { id: 'service', label: 'Service',    Icon: SeatIcon,       pages: ['marketing', 'catering', 'ancillaries', 'reputation', 'loyalty', 'partners'] },
+  { id: 'service', label: 'Service',    Icon: SeatIcon,       pages: ['reputation', 'catering', 'ancillaries', 'loyalty', 'partners'] },
   { id: 'finance', label: 'Finance',    Icon: FinanceIcon,    pages: ['fin-statements', 'fin-planning', 'fin-analysis', 'fin-breakdown'] },
 ];
 
@@ -162,9 +161,7 @@ export function mapGroupOf(page) {
 export function resolveMapPage(id) {
   if (id === MAP_TAB) return MAP_TAB;
   if (id === 'operations') {
-    if (peekDepartureBoardRequest()) return 'departures';
-    // The Dashboard's brand marketing tile asks for the marketing card.
-    return peekNavFilter('operations')?.section === 'marketing' ? 'marketing' : 'operations';
+    return peekDepartureBoardRequest() ? 'departures' : 'operations';
   }
   if (id === 'finance') {
     const g = financeGroupOf(peekNavFilter('finance')?.view);

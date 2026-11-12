@@ -588,7 +588,7 @@ export default function Dashboard({ onNavigate }) {
               color="blue"
               sub={sub}
               onClick={canNavigate
-                ? () => requestNav('operations', { filter: { section: 'marketing' }, focus: 'marketing-budget' })
+                ? () => requestNav('reputation', { focus: 'marketing-budget' })
                 : undefined}
             />
           );

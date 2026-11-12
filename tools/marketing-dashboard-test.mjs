@@ -142,13 +142,14 @@ await test('5. 0% held is still shown (it is a choice, and the next week will sa
   assert.ok(t.text.includes('0% of revenue'), t.text);
 });
 
-await test('6. clicking it lands on Marketing in the map view, Crew otherwise', async () => {
+await test('6. clicking it lands on the marketing card on the Brand page, in both layouts', async () => {
+  // Marketing moved from Operations to the Brand page (tab id 'reputation').
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/components/Dashboard.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes("requestNav('reputation', { focus: 'marketing-budget' })"), 'the tile deep-links to the Brand page');
   const { resolveMapPage } = await import('../src/components/MapShell.jsx');
-  const { requestNav, consumeNavFilter } = await import('../src/utils/navIntent.js');
-  requestNav('operations', { filter: { section: 'marketing' }, focus: 'marketing-budget' });
-  assert.equal(resolveMapPage('operations'), 'marketing');
-  assert.deepEqual(consumeNavFilter('operations'), { section: 'marketing' });
-  assert.equal(resolveMapPage('operations'), 'operations', 'a later plain visit is not redirected');
+  assert.equal(resolveMapPage('reputation'), 'reputation');
+  assert.equal(resolveMapPage('operations'), 'operations', 'Crew is never redirected');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
