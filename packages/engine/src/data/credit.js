@@ -192,6 +192,9 @@ export function creditInputs(state) {
   return {
     weeklyRevenue:   n ? window.reduce((s, h) => s + (Number(h?.revenue) || 0), 0) / n : 0,
     weeklyNetIncome: n ? window.reduce((s, h) => s + (Number(h?.profit)  || 0), 0) / n : 0,
+    // What was actually paid to lenders in those same weeks — the amount the
+    // profit figures above are net of. See operatingCashFlow.
+    weeklyLoanPaid:  n ? window.reduce((s, h) => s + (Number(h?.loanPayments) || 0), 0) / n : 0,
     weeksOps:        history.length,
   };
 }
@@ -402,10 +405,20 @@ export function weeklyDebtService(state) {
 /**
  * Net income before loan payments, averaged over the credit window — what the
  * airline has available to service debt. financialHistory.profit is AFTER
- * loan payments, so they are added back.
+ * loan payments, so they are added back — the payments recorded in those same
+ * weeks (financialHistory.loanPayments), NOT today's debt service.
+ *
+ * Why: adding back weeklyDebtService(state) gave a loan signed this week its
+ * own payment back as "earnings" it had never been charged against, so every
+ * draw raised the ceiling for the next one. Draw the full long-term facility,
+ * refresh, and half of it was on offer again; repeat to twice the ceiling
+ * (Kadicuss, Discord, Nov 2026). It also undercounted the other way: a loan
+ * paid off inside the window left its payments in the averaged profit with
+ * nothing added back.
  */
 export function operatingCashFlow(state) {
-  return creditInputs(state).weeklyNetIncome + weeklyDebtService(state);
+  const { weeklyNetIncome, weeklyLoanPaid } = creditInputs(state);
+  return weeklyNetIncome + weeklyLoanPaid;
 }
 
 /**

@@ -40,8 +40,10 @@ function test(name, fn) {
   catch (e) { console.log(`  ✗ ${name}\n      ${(e.stack || e.message).split('\n').slice(0, 4).join('\n      ')}`); failed++; }
 }
 const near = (a, b, eps) => Math.abs(a - b) <= eps;
-const history = (n, revenue, profit) =>
-  Array.from({ length: n }, (_, i) => ({ week: i + 1, year: 1, revenue, profit }));
+// `profit` is after loan payments, as the tick writes it; `loanPayments` is
+// what the airline actually paid its lenders that week (also as the tick writes it).
+const history = (n, revenue, profit, loanPayments = 0) =>
+  Array.from({ length: n }, (_, i) => ({ week: i + 1, year: 1, revenue, profit, loanPayments }));
 const owned = (typeId, ageWeeks, over = {}) => ({ id: `t-${typeId}-${ageWeeks}-${Math.random().toString(36).slice(2, 6)}`, typeId, ownershipType: 'owned', ageWeeks, status: 'idle', ...over });
 const loanOf = (principal, rate = 0.065, termWeeks = 416, over = {}) => ({
   id: `l-${principal}`, productId: AIRCRAFT_LOAN_ID, principal, interestRate: rate, termWeeks,
@@ -65,7 +67,7 @@ test('the constants are what the test describes', () => {
 
 test('operating cash flow is net income with loan payments added back', () => {
   const l = loanOf(100_000_000);
-  const s = airline({ loans: [l] });
+  const s = airline({ loans: [l], financialHistory: history(12, 20_000_000, 2_000_000, l.weeklyPayment) });
   assert.equal(weeklyDebtService(s), l.weeklyPayment);
   assert.equal(operatingCashFlow(s), 2_000_000 + l.weeklyPayment);
   assert.equal(weeklyDebtService(airline({ loans: [loanOf(5_000_000, 0.065, 52, { weeksRemaining: 0 })] })), 0, 'a paid-off loan costs nothing');
@@ -107,7 +109,7 @@ test('coverage: existing debt service eats the headroom', () => {
   const before = borrowingCapacity(fresh, AIRCRAFT_LOAN_ID);
   const l = loanOf(before / 2, loanRate(fresh, AIRCRAFT_LOAN_ID));
   // Taking half the capacity: net income falls by the payment, OCF is unchanged, headroom halves.
-  const after = airline({ ...fresh, loans: [l], financialHistory: history(12, 40_000_000, 4_000_000 - l.weeklyPayment) });
+  const after = airline({ ...fresh, loans: [l], financialHistory: history(12, 40_000_000, 4_000_000 - l.weeklyPayment, l.weeklyPayment) });
   const capAfter = borrowingCapacity(after, AIRCRAFT_LOAN_ID);
   // Compare payments, not principals: the second airline is more geared and
   // less profitable, so its rating and therefore its rate have moved.
@@ -179,6 +181,67 @@ test('the reducer refuses a loan over the ceiling, and the guard would too (same
   const no = gameReducer(s, { type: 'TAKE_LOAN', productId: AIRCRAFT_LOAN_ID, principal: cap + 1_000_000 });
   assert.equal((no.loans ?? []).length, 0, 'a loan over the ceiling is not');
 });
+
+// Kadicuss, Discord 2026-11-11: draw the whole long-term facility, refresh, and
+// the Finance screen offers half of it again — then half of that, and so on, to
+// twice the ceiling. operatingCashFlow added back the CURRENT debt service to
+// net income averaged over the last four weeks, so a loan signed this week had
+// its payment added back to profits it had never been taken out of: each draw
+// raised the "earnings" that sized the next one by its own payment, and the
+// coverage headroom fell by only half the new payment instead of all of it.
+// The add-back must be what was actually paid in the weeks being averaged.
+{
+  // Big enough that only the coverage test binds on the long-term loan.
+  const rich = () => airline({ cash: 5_000_000_000, financialHistory: history(12, 500_000_000, 20_000_000) });
+
+  test('coverage: a loan signed this week does not raise its own ceiling (the refresh exploit)', () => {
+    const s0 = rich();
+    const lim0 = borrowingLimits(s0, 'long');
+    assert.equal(lim0.binding, 'coverage', `fixture: coverage must bind, got ${lim0.binding}`);
+    const s1 = gameReducer(s0, { type: 'TAKE_LOAN', productId: 'long', principal: lim0.capacity });
+    assert.equal(s1.loans.length, 1);
+    const after = borrowingCapacity(s1, 'long');
+    assert.ok(after <= lim0.capacity * 0.01, `after drawing the whole $${lim0.capacity.toLocaleString()} the long-term ceiling offered $${after.toLocaleString()} more`);
+  });
+
+  test('coverage: drawing at capacity over and over cannot borrow more than the first ceiling', () => {
+    let s = rich();
+    const first = borrowingCapacity(s, 'long');
+    let total = 0;
+    for (let i = 0; i < 8; i++) {
+      const cap = borrowingCapacity(s, 'long');
+      if (cap < LOAN_MIN_PRINCIPAL) break;
+      s = gameReducer(s, { type: 'TAKE_LOAN', productId: 'long', principal: cap });
+      total += cap;
+    }
+    assert.ok(total <= first * 1.01, `borrowed $${total.toLocaleString()} against a ceiling of $${first.toLocaleString()}`);
+  });
+
+  test('coverage: the ceiling does not reopen as the new payment works through the four-week window', () => {
+    const s0 = rich();
+    const cap0 = borrowingCapacity(s0, 'long');
+    const s1 = gameReducer(s0, { type: 'TAKE_LOAN', productId: 'long', principal: cap0 });
+    const pay = s1.loans[0].weeklyPayment;
+    for (let paidWeeks = 1; paidWeeks <= 4; paidWeeks++) {
+      const hist = [...history(12 - paidWeeks, 500_000_000, 20_000_000),
+                    ...history(paidWeeks, 500_000_000, 20_000_000 - pay, pay)];
+      const later = { ...s1, financialHistory: hist,
+        loans: s1.loans.map((l) => ({ ...l, weeksRemaining: l.termWeeks - paidWeeks })) };
+      const cap = borrowingCapacity(later, 'long');
+      assert.ok(cap <= cap0 * 0.02, `${paidWeeks} week(s) in: $${cap.toLocaleString()} reopened on a $${cap0.toLocaleString()} ceiling`);
+    }
+  });
+
+  test('coverage: a paid-off loan frees the headroom it used', () => {
+    const s0 = rich();
+    const pay = 2_000_000;
+    // Its payments are still in the window, but it has no weeks left to run.
+    const done = { ...loanOf(100_000_000, 0.13, 52, { productId: 'long', weeksRemaining: 0 }), weeklyPayment: pay };
+    const s = { ...s0, loans: [done], financialHistory: history(12, 500_000_000, 20_000_000 - pay, pay) };
+    assert.equal(operatingCashFlow(s), 20_000_000);
+    assert.equal(borrowingCapacity(s, 'long'), borrowingCapacity(s0, 'long'));
+  });
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
