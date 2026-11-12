@@ -585,6 +585,8 @@ export default async function worldRoutes(fastify) {
           hubBanks: { type: 'boolean' },
           // Custom catering (default ON; false = the five classic levels only).
           customCatering: { type: 'boolean' },
+          // AI airlines (lib/aiAirlines.mjs) — admin only; createWorld refuses anyone else.
+          aiAirlines: { type: 'string', maxLength: 12 },
           // Per-world frames a week: { classes: {cls: n}, lines: {lineId: n} }.
           // Contents validated in worldConfig (lineRatesProblem).
           productionLineRates: { type: 'object' },

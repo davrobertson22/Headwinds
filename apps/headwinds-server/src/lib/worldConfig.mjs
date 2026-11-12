@@ -254,9 +254,12 @@ export function paceLabel(weeksPerDay) {
 
 // Admins may pass custom length/pace/capital/demand — validated to bounds, not to
 // the preset arrays (those are just dropdown quick-picks in the UI).
+/** The AI-airline settings a world can be created with, besides 'off' (the presets are in lib/aiAirlines.mjs). */
+export const AI_AIRLINE_SETTINGS = ['light'];
+
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, stage, startYear, event = null,
+  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, aiAirlines, stage, startYear, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -294,6 +297,11 @@ export function validateWorldConfig({
   }
   if (customCatering != null && typeof customCatering !== 'boolean') {
     throw badRequest('customCatering must be true or false');
+  }
+  // AI airlines (lib/aiAirlines.mjs). Only the settings that exist: Standard
+  // and Fierce wait for bot tiers that have not been built.
+  if (aiAirlines != null && aiAirlines !== 'off' && !AI_AIRLINE_SETTINGS.includes(aiAirlines)) {
+    throw badRequest(`aiAirlines must be one of: off, ${AI_AIRLINE_SETTINGS.join(', ')}`);
   }
   if (productionLineRates != null) {
     const problem = lineRatesProblem(productionLineRates);
@@ -472,6 +480,8 @@ export function serializeWorld(world, { playerCount, includeJoinCode = false } =
     customCatering: world.tickConfig?.customCatering === true,
     // Connection seats (new worlds from 2026-11-11).
     connectionSeats: world.tickConfig?.connectionSeats === true,
+    // AI airlines (admin worlds from 2026-11-12): 'light' or null.
+    aiAirlines: AI_AIRLINE_SETTINGS.includes(world.tickConfig?.aiAirlines) ? world.tickConfig.aiAirlines : null,
     // Station fuel pricing + tankering (fuel-ops v2).
     fuelStations: fuelOpsVOf(world.tickConfig) >= 2,
     // Rival one-stop itineraries (HUB_CONNECTIVITY_PLAN.md): rivals sell

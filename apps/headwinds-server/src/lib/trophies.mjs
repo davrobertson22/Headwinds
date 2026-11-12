@@ -16,6 +16,7 @@
 // `prisma` is passed in (no db import) so tools/event-worlds-test.mjs can
 // drive every rule with a fake.
 // ─────────────────────────────────────────────────────────────────────────────
+import { isAiAccount } from './aiAirlines.mjs';
 import { createHash } from 'node:crypto';
 
 export const TROPHY_NAME_MAX = 60;
@@ -209,8 +210,10 @@ export async function awardTrophy(prisma, { trophyId, accountId, worldId = null,
   if (place != null && (!Number.isInteger(place) || place < 1 || place > 1000)) throw httpError(400, 'place must be a whole number from 1');
   const trophy = await prisma.trophy.findUnique({ where: { id: trophyId }, select: { id: true } });
   if (!trophy) throw httpError(404, 'No such trophy');
-  const account = await prisma.account.findUnique({ where: { id: accountId }, select: { id: true } });
+  const account = await prisma.account.findUnique({ where: { id: accountId }, select: { id: true, authUserId: true } });
   if (!account) throw httpError(404, 'No such player');
+  // Trophies go to people (Dave, 2026-11-10). An AI airline can finish first; it cannot be handed the cup.
+  if (isAiAccount(account)) throw httpError(400, 'That is an AI airline — trophies go to players');
 
   let worldName = null, airlineName = null;
   if (worldId) {

@@ -30,10 +30,12 @@ import {
 import { scrapStale, listSoldAircraftTx } from './aircraftMarketService.mjs';
 import { snapshotWorldCareers, passengerTotalsFrom } from './careerService.mjs';
 import { computeSeasonAwards } from './seasonAwards.mjs';
+import { aiPresetOf, runAiWeek, humansOnly } from './aiAirlines.mjs';
+import { seedAirlineState, createAirlineRow } from './worldService.mjs';
 import { expireStaleOffers } from './codeshareService.mjs';
 import { fireSaleAirline } from './fireSaleService.mjs';
 import { tombstoneAirline } from './tombstone.mjs';
-import { refillWorldMarket, splitDividend, holdersOf } from './marketService.mjs';
+import { refillWorldMarket, worldEquityValue, splitDividend, holdersOf } from './marketService.mjs';
 import { withTx } from './tx.mjs';
 import { compactReportForStorage } from './reportStorage.mjs';
 import { joinReport, splitReport } from './reportColumn.mjs';
@@ -818,12 +820,13 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       + `(${outcome.airlines} airline(s)${outcome.recomputed ? `, ${outcome.recomputed} recomputed` : ''})`,
     );
 
-    // ── Float pool refill ───────────────────────────────────────────────────
-    // Heals POOL_REFILL_PER_YEAR of the pool's seed per game year (spread weekly),
-    // never above the seed — so the pool is a revolving facility, not a growing
-    // faucet, and total lifetime injection into a world stays bounded.
+    // ── Float pool: growth and refill ───────────────────────────────────────
+    // The pool's seed grows toward a share of what the world's airlines are
+    // worth (never down), the new money lands in the pool, and a drained pool
+    // heals POOL_REFILL_PER_YEAR of the seed a game year. Outside money stays
+    // bounded — by the size of the world rather than its size on day one.
     // Best-effort: a failed refill must never roll back the week.
-    await refillWorldMarket(prisma, world.id, { log });
+    await refillWorldMarket(prisma, world.id, { log, worldValue: worldEquityValue(outcome.written) });
 
     // ── Gate scarcity post-commit hooks ─────────────────────────────────────
     // Best-effort (CAS-retried inside): a failure here must never roll back the
@@ -922,7 +925,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
         await snapshotWorldCareers(prisma, { ...world, status: 'ENDED', endedAt: new Date() }, {
           weekIndex: toIndex,
           rankingSince,
-          ranked: outcome.ranked ?? [],
+          // Humans only: an AI airline is ranked all season, but the hall of fame,
+          // the podium and the awards are for players (lib/aiAirlines.mjs).
+          ranked: humansOnly(outcome.ranked ?? [], airlines),
           // Lifetime passengers come from states already in memory. Reading
           // forty half-megabyte blobs back out to count them would cost more
           // than the whole week's commit.
@@ -956,7 +961,9 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           log.warn?.(`[tick] world ${world.id} #1-tenure lookup failed: ${err?.message ?? err}`);
         }
         const awards = computeSeasonAwards({
-          ranked: outcome.ranked ?? [],
+          // Humans only: an AI airline is ranked all season, but the hall of fame,
+          // the podium and the awards are for players (lib/aiAirlines.mjs).
+          ranked: humansOnly(outcome.ranked ?? [], airlines),
           computed,
           passengersById: passengerTotalsFrom(computed),
           tenureById,
@@ -1158,6 +1165,14 @@ export async function runDueTicks(prisma, {
     const slot = candidates[0];
     const { world } = slot;
     try {
+      // AI airlines take their turn for the week about to be flown, and are
+      // founded here in the world's first week (lib/aiAirlines.mjs). Only a world
+      // created with the option reaches the call; whatever goes wrong inside it
+      // is the AI airlines' loss, never the week's.
+      if (aiPresetOf(world)) {
+        try { await runAiWeek(prisma, world, { seedAirlineState, createAirlineRow, log }); }
+        catch (err) { log.warn?.(`[ai] world ${world.id}: AI airlines skipped this week: ${err?.message ?? err}`); }
+      }
       const res = await tickOne(prisma, world, { log });
       if (!res?.ok) { slot.out = true; continue; } // lost a race or world completed — next run resolves
       ticked++;

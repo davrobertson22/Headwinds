@@ -149,6 +149,7 @@ export const BOT_TIERS = {
     availability: 0.95,      // share of the year a tail is not in a hangar
     planHours: 95,           // block hours a week a planned tail is assumed to fly (for its check intervals)
     // ── fleet ──
+    maxFleet: Infinity,      // the most aircraft it will hold, in service and on order (a world's AI preset sets this)
     maxPending: 2,           // aircraft on order at once …
     pendingPerFleet: 0.15,   // … or this share of the fleet, whichever is more
     ordersPerFleet: 0.05,    // orders a week: one, plus this share of the fleet
@@ -778,7 +779,8 @@ export function runBotTurn(state, memory, { apply, canLease = () => true, explai
     const tails = passengerTails();
     const fleetSize = (st.fleet ?? []).length;
     const maxPending = Math.max(P.maxPending, Math.ceil(fleetSize * P.pendingPerFleet));
-    let room = Math.min(maxPending - (st.pendingOrders ?? []).length, 1 + Math.floor(fleetSize * P.ordersPerFleet));
+    let room = Math.min(maxPending - (st.pendingOrders ?? []).length, 1 + Math.floor(fleetSize * P.ordersPerFleet),
+      P.maxFleet - fleetSize - (st.pendingOrders ?? []).length);
     if (room <= 0) break grow;
     const flying = flyingIds();
     if (moreToPlace || stuck.length || tails.some((a) => !flying.has(a.id))) break grow;   // use what you have first

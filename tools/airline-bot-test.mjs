@@ -219,6 +219,9 @@ await t('it will not order while an aircraft it has is parked', () => {
     lastReport: { ...grown.lastReport, routeResults: grown.lastReport.routeResults.map((rr) => ({ ...rr, profit: 400_000 })) } };
   const mem = { ...grownMem, full: Object.fromEntries(grown.fleet.map((a) => [a.id, absWeek(grown) + 9])) };
   assert.ok(types(turn(ready, mem)).includes('ORDER_AIRCRAFT'), 'fixture: this airline should be ordering');
+  // … unless it is at the size its world allows an AI airline (the preset's maxFleet, lib/aiAirlines.mjs).
+  assert.ok(!types(turn(ready, mem, { params: { maxFleet: inUse.length } })).includes('ORDER_AIRCRAFT'), 'ordered past its fleet limit');
+  assert.ok(types(turn(ready, mem, { params: { maxFleet: inUse.length + 1 } })).includes('ORDER_AIRCRAFT'), 'one under the limit should still order');
   // The same airline with one aircraft off its routes and not yet placed.
   const st = { ...ready, routes: ready.routes.filter((r) => r.aircraftId !== inUse[0].id) };
   const r = turn(st, mem, { params: { maxAssignPerTurn: 0 } });

@@ -19,6 +19,7 @@ import { rebaseStateCalendar } from './calendar.mjs';
 import { splitLogo } from './logoColumn.mjs';
 import { liveStatColumns, weeksFlownOf } from './liveStats.mjs';
 import { seedWorldMarket } from './marketService.mjs';
+import { aiPresetOf, AI_ACCOUNT_WHERE } from './aiAirlines.mjs';
 import { worldEconomyAt } from './worldEconomy.mjs';
 
 function httpError(statusCode, message) {
@@ -90,6 +91,7 @@ export async function createWorld(prisma, {
   // { classes: { 'Wide Body': 3 }, lines: { a380: 1 } } — frames a week the
   // creator typed; blanks keep the default (engine data/productionLines.js).
   productionLineRates,
+  aiAirlines,
   stage,
   startYear,
   // ── Supporter world ──────────────────────────────────────────────────────
@@ -116,6 +118,9 @@ export async function createWorld(prisma, {
   const worldSeed = genWorldSeed();
   const eventConfig = normalizeEventInput(event, { seed: worldSeed });
   if (eventConfig && ownerAccountId) throw httpError(403, 'Only an admin can run an event world');
+  // AI airlines (claude/background-competitors-plan.md): admin worlds only
+  // while the feature is on trial — every AI airline is server work each week.
+  if (aiAirlines != null && aiAirlines !== 'off' && ownerAccountId) throw httpError(403, 'Only an admin can add AI airlines to a world');
   let timed = null;
   if (endAt != null) {
     if (!eventConfig) throw httpError(400, 'Only an event world can end at a set time');
@@ -129,7 +134,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, aiAirlines, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -241,6 +246,10 @@ export async function createWorld(prisma, {
     // Optional preset start instant (ISO). Present → the worker starts this world
     // at that time and joining does NOT start the clock (see joinWorld + tickService).
     ...(scheduledStartAt ? { scheduledStartAt: new Date(scheduledStartAt).toISOString() } : {}),
+    // AI airlines (lib/aiAirlines.mjs): airlines run by the engine's bot, founded
+    // when the world starts. Fixed at creation; the key is only written when
+    // the creator asked for them, so every other world stays keyless.
+    ...(aiAirlines != null && aiAirlines !== 'off' ? { aiAirlines } : {}),
     // Event world (see eventOf in worldConfig.mjs).
     ...(eventConfig ? { event: eventConfig } : {}),
     ...(timed ?? {}),
@@ -458,6 +467,57 @@ export function assertFoundingHubAllowed(world, hub) {
   if (why) throw httpError(400, why);
 }
 
+/**
+ * Create an airline's row in a world, seeded with the opening position, with
+ * its starter hub gate in the world's ledger. Everything about founding an
+ * airline that is not about WHO is founding it: joinWorld adds a player's
+ * checks (password, badge, seats) and starts the clock; an AI airline
+ * (lib/aiAirlines.mjs) is founded through here with none of them. Throws
+ * Prisma's P2002 when the account already has an airline in the world.
+ */
+export async function createAirlineRow(prisma, { world, accountId, airlineName, hub }) {
+  // Seed the opening position — see seedAirlineState. Shared verbatim with the
+  // restart path so a re-founded airline lands on the same economy as its rivals.
+  const worldDatedState = seedAirlineState(world, { airlineName, hub });
+  const tc = world.tickConfig ?? {};
+
+  const airline = await prisma.airline.create({
+      data: {
+        worldId: world.id,
+        accountId,
+        name: worldDatedState.airlineName,
+        hub: worldDatedState.hub ?? hub,
+        // splitLogo: the engine's fresh-state template carries customLogo: null —
+        // the key never persists inside the blob (lib/logoColumn.mjs); the
+        // column's default null is the same "no upload yet".
+        state: splitLogo(worldDatedState).state,
+        cash: BigInt(Math.round(worldDatedState.cash ?? 0)),
+        marketCap: BigInt(Math.round(worldDatedState.marketCap ?? 0)),
+        // Linear week index, matching what the tick writes (see tickService's
+        // weekIndex) — NOT the week-of-year, which would read as week 1 for a
+        // world in its first January of year 5.
+        week: (world.currentYear - 1) * 52 + world.currentWeek,
+        // Also the LINEAR index, so "joined at week 137 of a 520-week world" is
+        // answerable. It used to store the week-of-year, which threw the year
+        // away (a join in year 3 recorded as "week 12").
+        joinedWeek: (world.currentYear - 1) * 52 + world.currentWeek,
+        // Live standings columns, so a newcomer shows in the player list (at
+        // $0 a week) before their first tick rather than as a row of dashes.
+        ...liveStatColumns(worldDatedState, weeksFlownOf(world)),
+        status: 'ACTIVE',
+      },
+  });
+
+  // Gate scarcity: mirror the starter hub gate (seeded by START_GAME above)
+  // into the world's gate ledger. Part of the home-hub guarantee, so it seeds
+  // even at a full airport (the overshoot counts toward fullness).
+  if (tc.gateScarcity === true) {
+    const { seedHubGate } = await import('./gateService.mjs');
+    await seedHubGate(prisma, world.id, worldDatedState.hub ?? hub, airline.id);
+  }
+  return airline;
+}
+
 // Join a world: create the caller's Airline, seeded from the shared engine's
 // starting position (the exact solo-game opening). Enforces capacity, join codes,
 // world lifecycle, and one-airline-per-account-per-world.
@@ -499,55 +559,22 @@ export async function joinWorld(prisma, { account, world, airlineName, hub, join
   // check (they resurrect a row that was admitted when it was created), so a
   // full world can briefly exceed maxPlayers if the dead rise — accepted:
   // maxPlayers exists to bound how many airlines FLY, and it still does.
-  const count = await prisma.airline.count({ where: { worldId: world.id, status: 'ACTIVE' } });
+  // AI airlines (lib/aiAirlines.mjs) do not take a player's seat: maxPlayers
+  // is how many PEOPLE a world holds. Only a world that has the option asks
+  // the second question; every other world asks exactly what it always did.
+  const count = aiPresetOf(world)
+    ? await prisma.airline.count({ where: { worldId: world.id, status: 'ACTIVE', account: { NOT: AI_ACCOUNT_WHERE } } })
+    : await prisma.airline.count({ where: { worldId: world.id, status: 'ACTIVE' } });
   if (count >= world.maxPlayers) throw httpError(409, 'This world is full');
-
-  // Seed the opening position — see seedAirlineState. Shared verbatim with the
-  // restart path so a re-founded airline lands on the same economy as its rivals.
-  const worldDatedState = seedAirlineState(world, { airlineName, hub });
-  const tc = world.tickConfig ?? {};
 
   let airline;
   try {
-    airline = await prisma.airline.create({
-      data: {
-        worldId: world.id,
-        accountId: account.id,
-        name: worldDatedState.airlineName,
-        hub: worldDatedState.hub ?? hub,
-        // splitLogo: the engine's fresh-state template carries customLogo: null —
-        // the key never persists inside the blob (lib/logoColumn.mjs); the
-        // column's default null is the same "no upload yet".
-        state: splitLogo(worldDatedState).state,
-        cash: BigInt(Math.round(worldDatedState.cash ?? 0)),
-        marketCap: BigInt(Math.round(worldDatedState.marketCap ?? 0)),
-        // Linear week index, matching what the tick writes (see tickService's
-        // weekIndex) — NOT the week-of-year, which would read as week 1 for a
-        // world in its first January of year 5.
-        week: (world.currentYear - 1) * 52 + world.currentWeek,
-        // Also the LINEAR index, so "joined at week 137 of a 520-week world" is
-        // answerable. It used to store the week-of-year, which threw the year
-        // away (a join in year 3 recorded as "week 12").
-        joinedWeek: (world.currentYear - 1) * 52 + world.currentWeek,
-        // Live standings columns, so a newcomer shows in the player list (at
-        // $0 a week) before their first tick rather than as a row of dashes.
-        ...liveStatColumns(worldDatedState, weeksFlownOf(world)),
-        status: 'ACTIVE',
-      },
-    });
+    airline = await createAirlineRow(prisma, { world, accountId: account.id, airlineName, hub });
   } catch (e) {
     // A same-account double-submit races the (worldId, accountId) unique index —
     // return the clean 409 the pre-check would have, not a raw 500.
     if (e?.code === 'P2002') throw httpError(409, 'You already have an airline in this world');
     throw e;
-  }
-
-  // Gate scarcity: mirror the starter hub gate (seeded by START_GAME above)
-  // into the world's gate ledger. Part of the home-hub guarantee, so it seeds
-  // even at a full airport (the overshoot counts toward fullness).
-  if (tc.gateScarcity === true) {
-    const { seedHubGate } = await import('./gateService.mjs');
-    await seedHubGate(prisma, world.id, worldDatedState.hub ?? hub, airline.id);
   }
 
   // First player starts the clock: LOBBY → RUNNING, startedAt = now. The
