@@ -42,14 +42,33 @@ export function projectWeekShared(state) {
  * skips (grounded / dormant-seasonal), using the same labor + fuel the engine
  * used. (Moved verbatim from Dashboard.jsx.)
  */
+//
+// Kept per projection: the same projection over the same route, freight and
+// fleet tables is the same list, so a screen-only change (a pop-up dismissed,
+// a tab opened) hands back the SAME array and nothing downstream of it on the
+// Dashboard is worked out again. (Each call used to search the fleet for every
+// route, too: 20 million comparisons at 4,000 routes and 4,900 tails, measured
+// 2026-11-12.)
+const ROUTE_RESULTS_MEMO = new WeakMap();   // proj -> { routes, fleet, cargoRoutes, week, year, value }
 export function projectedRouteResults(state, proj) {
+  const { fleet = [], routes = [] } = state;
+  const kept = proj && typeof proj === 'object' ? ROUTE_RESULTS_MEMO.get(proj) : undefined;
+  if (kept && kept.routes === routes && kept.fleet === fleet && kept.cargoRoutes === state.cargoRoutes
+      && kept.week === state.week && kept.year === state.year) return kept.value;
+  const value = computeProjectedRouteResults(state, proj);
+  if (proj && typeof proj === 'object') ROUTE_RESULTS_MEMO.set(proj, { routes, fleet, cargoRoutes: state.cargoRoutes, week: state.week, year: state.year, value });
+  return value;
+}
+function computeProjectedRouteResults(state, proj) {
   const { fleet = [], routes = [] } = state;
   const gd = currentGameDate(state);
   const rrById = {};
   for (const rr of proj.report?.routeResults ?? []) rrById[rr.routeId] = rr;
   const avgUtil = fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]);
+  const byId = new Map();
+  for (const a of fleet) if (!byId.has(a.id)) byId.set(a.id, a);   // first record wins, as find did
   return routes.map(route => {
-    const aircraft = fleet.find(a => a.id === route.aircraftId);
+    const aircraft = byId.get(route.aircraftId);
     const result = !aircraft ? null
       : (rrById[route.id] ?? skippedRouteForecast(state, route, aircraft,
           { gameDate: gd, fuelMultiplier: proj.fuelMultiplier, avgUtilization: avgUtil }));

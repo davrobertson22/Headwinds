@@ -65,14 +65,38 @@ export function deliveryLead(type) {
  */
 export function deliverySchedule(type, pendingOrders, absWeek, quantity = 1) {
   const lead = deliveryLead(type);
-  const queued = (pendingOrders ?? []).filter(o => o?.typeId === type?.id);
-  let last = queued.length > 0 ? Math.max(...queued.map(o => o.deliverAbsWeek)) : null;
+  let last = lastQueuedWeek(pendingOrders, type?.id);
   const weeks = [];
   for (let i = 0; i < Math.max(0, quantity); i++) {
     last = last === null ? absWeek + 2 * lead : last + lead;
     weeks.push(last);
   }
   return weeks;
+}
+
+// The latest queued delivery of each type, per order book. The market asks
+// for every one of ~200 types on every render; a big airline has thousands of
+// orders queued (6,631 for the largest, 2026-11-12), so each type used to scan
+// the whole book. The book is indexed once per orders array instead. Same
+// answer: Math.max over that type's deliverAbsWeek values, null when none.
+const LAST_QUEUED = new WeakMap();   // pendingOrders array -> { len, byType: Map(typeId -> last week) }
+function lastQueuedWeek(pendingOrders, typeId) {
+  const book = pendingOrders ?? [];
+  // (The length is checked too, so an array pushed to in place is re-read.)
+  let kept = LAST_QUEUED.get(book);
+  let byType = kept && kept.len === book.length ? kept.byType : null;
+  if (!byType) {
+    const weeks = new Map();
+    for (const o of book) {
+      const k = o?.typeId;
+      const list = weeks.get(k);
+      if (list) list.push(o.deliverAbsWeek); else weeks.set(k, [o.deliverAbsWeek]);
+    }
+    byType = new Map();
+    for (const [k, list] of weeks) byType.set(k, list.reduce((m, w) => Math.max(m, w), -Infinity));
+    if (typeof book === 'object') LAST_QUEUED.set(book, { len: book.length, byType });
+  }
+  return byType.has(typeId) ? byType.get(typeId) : null;
 }
 
 /** Weeks from now until the next frame of `type` would arrive if ordered today. */

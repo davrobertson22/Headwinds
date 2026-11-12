@@ -14,6 +14,10 @@
 //     sequence of writes (fares, routes opened and closed, a rename, a
 //     retirement, an alliance, a rival's marketing)
 //   • a fare change derives one airline, not the world
+//   • a route opened re-scores only the airlines that fly where it lands
+//     (2026-11-12: it used to re-score every airline in the world, 0.6 s in
+//     Scarce Assets), and the signature that decides this agrees with the
+//     engine's ad-spend rule
 //   • the scoring reads nothing from the other airlines but where they
 //     advertise — the fields the fingerprint covers
 //   • a change of world settings, and the tick's own rows, never reuse anything
@@ -25,6 +29,8 @@ import fs from 'node:fs';
 import { gameReducer, freshState } from '../packages/engine/src/reducer.mjs';
 import * as rivals from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import { AIRCRAFT_TYPES } from '../packages/engine/src/data/aircraft.js';
+import { competitorMarketingSpend } from '../packages/engine/src/models/competitorAI.js';
+import { createHash } from 'node:crypto';
 
 const { buildRivalViews, buildWorldRivalViews, toRivalSpecs, stripRivals } = rivals;
 const MAX = rivals.RIVAL_ROWS_MAX_STALE_MS ?? 60_000;
@@ -131,7 +137,7 @@ await test('a fare change derives that airline and nobody else', () => {
   rows = rows.map((x) => (x.id === 'a2' ? write(x, 'UPDATE_TICKET_PRICE', { routeId: x.state.routes[0].id, ticketPrice: 99 }) : x));
   assert.deepEqual(derivedBy(memo, () => buildRivalViews(rows, new Map(), memo)), { comps: 1, specs: 1 });
 });
-await test('a route to a new airport moves where that airline advertises, so every spec is scored again', () => {
+await test('a route to an airport nobody else flies re-scores only the airline that opened it', () => {
   need();
   let rows = roster();
   const memo = freshMemo();
@@ -141,9 +147,62 @@ await test('a route to a new airport moves where that airline advertises, so eve
     n = gameReducer(n, { type: 'ADD_GATE', airportCode: 'DFW' });
     return gameReducer(n, { type: 'ADD_ROUTE', aircraftId: n.fleet[n.fleet.length - 1].id, origin: 'ATL', destination: 'DFW', weeklyFrequency: 7 });
   }) : x));
+  assert.ok(rows.find((x) => x.id === 'a5').state.routes.some((r) => r.destination === 'DFW'), 'the route was not opened');
   const d = derivedBy(memo, () => buildRivalViews(rows, new Map(), memo));
-  assert.equal(d.comps, 1);
-  assert.equal(d.specs, 5);
+  assert.deepEqual(d, { comps: 1, specs: 1 }, 'until 2026-11-12 every airline in the world was scored again here');
+  assert.equal(canon(buildRivalViews(rows, new Map(), freshMemo())), canon(buildRivalViews(rows, new Map())));
+});
+await test('a route to an airport others fly re-scores them too, and nobody else', () => {
+  need();
+  let rows = roster();
+  const memo = freshMemo();
+  buildRivalViews(rows, new Map(), memo);
+  // Eve (ATL) starts flying to Boston: Alice, Bob and Carol fly Boston; Dan does not.
+  rows = rows.map((x) => (x.id === 'a5' ? write(x, (s) => {
+    let n = gameReducer(s, { type: 'LEASE_AIRCRAFT', typeId: shortHaul.id });
+    n = gameReducer(n, { type: 'ADD_GATE', airportCode: 'BOS' });
+    return gameReducer(n, { type: 'ADD_ROUTE', aircraftId: n.fleet[n.fleet.length - 1].id, origin: 'ATL', destination: 'BOS', weeklyFrequency: 7 });
+  }) : x));
+  const before = new Map([...memo.specs].map(([id, e]) => [id, e.value]));
+  const views = buildRivalViews(rows, new Map(), memo);
+  const rescored = [...memo.specs].filter(([id, e]) => e.value !== before.get(id)).map(([id]) => id).sort();
+  assert.deepEqual(rescored, ['a1', 'a2', 'a3', 'a5']);
+  assert.equal(canon(views), canon(buildRivalViews(rows, new Map())));
+});
+await test('two entries that add the same at an airport by signature add the same amount there', () => {
+  need();
+  // Property check of voiceSignatures against the engine itself, over entries
+  // that differ in every field the spend reads.
+  const base = buildRivalViews(roster(), new Map()).get('a1').competitors;
+  let seed = 3; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  const variants = [];
+  for (const c of base) {
+    for (let k = 0; k < 12; k++) {
+      const routes = { ...c.routes };
+      if (rnd() < 0.5) routes[`${c.homeHub}-DFW`] = {};
+      if (rnd() < 0.3) routes['BOS-MIA'] = {};
+      variants.push({ ...c, routes, tier: rnd() < 0.3 ? 'major' : c.tier, fireSale: rnd() < 0.15, _distressWeeks: rnd() < 0.2 ? 5 : 0,
+        secondaryHub: rnd() < 0.3 ? 'MIA' : c.secondaryHub, _mktBlitz: rnd() < 0.3 ? { BOS: { spend: 400_000 } } : c._mktBlitz });
+    }
+  }
+  const lead = base[0];
+  let compared = 0;
+  for (const x of variants) for (const y of variants) {
+    const sx = rivals.voiceSignatures(x), sy = rivals.voiceSignatures(y);
+    for (const [code, sig] of sx) {
+      if (sy.get(code) !== sig) continue;
+      assert.equal(competitorMarketingSpend([lead, x])[code], competitorMarketingSpend([lead, y])[code], `${code}: ${sig}`);
+      compared++;
+    }
+    for (const code of Object.keys(competitorMarketingSpend([x]))) assert.ok(sx.has(code), `${code} gets spend but has no signature`);
+  }
+  assert.ok(compared > 1000, `only ${compared} comparisons`);
+});
+await test('competitorMarketingSpend is the one voiceSignatures was written against', () => {
+  // If this fails, the engine's ad-spend rule changed: re-read voiceSignatures
+  // in humanRivals.mjs (and the check above), then update the hash.
+  const h = createHash('sha1').update(competitorMarketingSpend.toString()).digest('hex').slice(0, 16);
+  assert.equal(h, '146f23a418d38949');
 });
 await test('an alliance change derives that airline\'s entry; a retired airline is forgotten', () => {
   need();

@@ -4806,8 +4806,19 @@ export function maxSeatsForRange(type, distKm) {
   return lo;
 }
 
+// Asked for constantly (every route, tail and row, on every render and tick):
+// a `find` over a couple of hundred types each time was a few percent of a
+// whole page render at 4,000 routes (measured 2026-11-12). Indexed once, first
+// record wins as `find` does; an id the index has not seen (a type added to the
+// table after the index was built) still falls back to the search.
+let TYPE_INDEX = null;
 export function getAircraftType(id) {
-  return AIRCRAFT_TYPES.find(a => a.id === id);
+  if (TYPE_INDEX === null || TYPE_INDEX.size === 0) {
+    TYPE_INDEX = new Map();
+    for (const a of AIRCRAFT_TYPES) if (!TYPE_INDEX.has(a.id)) TYPE_INDEX.set(a.id, a);
+  }
+  const hit = TYPE_INDEX.get(id);
+  return hit !== undefined ? hit : AIRCRAFT_TYPES.find(a => a.id === id);
 }
 
 // ─── Systems an airframe actually carries ─────────────────────────────────────

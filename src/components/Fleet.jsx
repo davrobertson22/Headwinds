@@ -94,16 +94,30 @@ const CABIN_LABELS = {
 export function tailRoutes(state, aircraftId) {
   return tailRoutesOf(state, aircraftId);
 }
+//
+// …and the answer for a tail is kept until one of its inputs changes: the
+// page asks for every tail three or more times a render (the list, the
+// summary chips, the by-type view, the bulk bar), and every render of the
+// page asks again. Its inputs are the aircraft record (status, type), its own
+// route lists (new arrays whenever the route tables change), the month and the
+// hours cap — exactly the key below.
+const UTIL_MEMO = new WeakMap();   // aircraft record -> { pax, cargo, month, cap, value }
 const utilFor = (state, aircraft, month) => {
   const mine = tailRoutes(state, aircraft?.id);
-  return aircraftUtilization({
+  const cap = maxWeeklyBlockHoursFor(state);
+  const keyed = aircraft && typeof aircraft === 'object';
+  const kept = keyed ? UTIL_MEMO.get(aircraft) : undefined;
+  if (kept && kept.pax === mine.pax && kept.cargo === mine.cargo && kept.month === month && kept.cap === cap) return kept.value;
+  const value = aircraftUtilization({
     aircraft,
     type:        getAircraftType(aircraft?.typeId),
     routes:      mine.pax,
     cargoRoutes: mine.cargo,
     month,
-    capHours:    maxWeeklyBlockHoursFor(state),
+    capHours:    cap,
   });
+  if (keyed) UTIL_MEMO.set(aircraft, { pax: mine.pax, cargo: mine.cargo, month, cap, value });
+  return value;
 };
 
 /** Bar width % — full (not clipped-and-forgotten) once the cap is breached. */

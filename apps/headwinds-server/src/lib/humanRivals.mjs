@@ -28,6 +28,7 @@ import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { blendJetAgeAppeal } from '@tailwinds/engine/models/jetAge.js';
 import { buildPlayerPairOffer } from '@tailwinds/engine/models/pairShare.js';
+import { competitorMarketingSpend } from '@tailwinds/engine/models/competitorAI.js';
 import { setFuelStationsEnabled, setFuelStationDiscounts, fuelStationsOn } from '@tailwinds/engine/data/fuelStations.js';
 import { publicFarmsOf } from '@tailwinds/engine/data/fuelFarm.js';
 import { goingRateFromRivals } from '@tailwinds/engine/models/talentMarket.js';
@@ -682,13 +683,14 @@ function selfScoredTerms(selfView, pairRoutes) {
 // A memo keeps each airline's two results with a fingerprint of their inputs:
 //
 //   competitor entry  the airline's own row, and its alliance id and name.
-//   specs             the airline's own row, and the "ad voice" of the others:
-//                     the only thing the scoring reads from anyone else is
-//                     where they advertise (engine competitorMarketingSpend:
-//                     hubs, tier, the airports of their routes, health,
-//                     blitzes), which drags this airline's brand there.
-//                     tools/rival-view-incremental-test.mjs holds that list to
-//                     what the engine really reads.
+//   specs             the airline's own row, and what the others spend on
+//                     advertising at the airports THIS airline flies: the only
+//                     thing the scoring reads from anyone else is that spend
+//                     (engine competitorMarketingSpend: hubs, tier, the
+//                     airports of their routes, health, blitzes), which drags
+//                     this airline's brand there (adVoiceKeyFor).
+//                     tools/rival-view-incremental-test.mjs holds the fields
+//                     and the airports to what the engine really reads.
 //
 // The row fingerprint is every column of the row except the state blob, which
 // `version` stands for: every write of an airline's state increments it (the
@@ -709,22 +711,79 @@ function rowFingerprint(row) {
 
 /** What competitorMarketingSpend reads from one competitor entry. */
 export const AD_VOICE_FIELDS = Object.freeze(['homeHub', 'secondaryHub', 'tier', 'fireSale', '_distressWeeks', 'routes', '_mktBlitz']);
-const adVoiceOf = new WeakMap();   // competitor entry -> digest
-function adVoiceDigest(c) {
-  if (!c) return '';
-  let d = adVoiceOf.get(c);
-  if (d === undefined) {
-    d = createHash('sha1').update(JSON.stringify([
-      c.homeHub ?? null, c.secondaryHub ?? null, c.tier ?? null, c.fireSale ? 1 : 0, (c._distressWeeks ?? 0) > 3 ? 1 : 0,
-      Object.keys(c.routes ?? {}), c._mktBlitz ?? null,
-    ])).digest('base64');
-    adVoiceOf.set(c, d);
+// What one competitor entry adds at each airport it advertises at, as a
+// signature: the same signature means the same sequence of amounts added there
+// by competitorMarketingSpend (engine models/competitorAI.js) — its hub spend
+// if the airport is its hub or second hub, one station amount per route end
+// there, and a blitz if it runs one. The amounts are set by its tier and
+// health. tools/rival-view-incremental-test.mjs holds this to the engine: it
+// fails when competitorMarketingSpend changes, or when two entries with the
+// same signature at an airport add different amounts there.
+const voiceSigsOf = new WeakMap();   // competitor entry -> Map(airport -> signature)
+export function voiceSignatures(c) {
+  let sigs = voiceSigsOf.get(c);
+  if (sigs) return sigs;
+  sigs = new Map();
+  if (c) {
+    const health = c.fireSale ? 'F' : (c._distressWeeks ?? 0) > 3 ? 'D' : 'H';
+    const stations = new Map();
+    for (const key of Object.keys(c.routes ?? {})) {
+      const [a, b] = key.split('-');
+      if (a !== c.homeHub && a) stations.set(a, (stations.get(a) ?? 0) + 1);
+      if (b !== c.homeHub && b) stations.set(b, (stations.get(b) ?? 0) + 1);
+    }
+    const codes = new Set([...stations.keys(), ...Object.keys(c._mktBlitz ?? {})]);
+    if (c.homeHub) codes.add(c.homeHub);
+    if (c.secondaryHub) codes.add(c.secondaryHub);
+    const live = competitorMarketingSpend([c]);   // only airports where something lands
+    for (const code of codes) {
+      if (!(live[code] > 0)) continue;
+      sigs.set(code, [c.tier ?? '', health, code === c.homeHub ? 1 : 0, code === c.secondaryHub ? 1 : 0,
+        stations.get(code) ?? 0, c._mktBlitz?.[code]?.spend ?? ''].join('/'));
+    }
   }
-  return d;
+  voiceSigsOf.set(c, sigs);
+  return sigs;
 }
-function adVoiceKey(competitors) {
+
+// The airports an airline's own scoring can read rival advertising at. Its
+// specs read the drag at the two ends of each pair it flies
+// (buildPlayerPairOffer → stateBrandReach(…, [origin, destination])); every
+// stop, its freight lanes and its hubs are taken too, so this is a superset.
+function ownAirports(row) {
+  const s = row?.state ?? {};
+  const codes = new Set();
+  for (const r of [...(s.routes ?? []), ...(s.cargoRoutes ?? [])]) {
+    if (r?.origin) codes.add(r.origin);
+    if (r?.destination) codes.add(r.destination);
+    for (const c of r?.stops ?? []) codes.add(c);
+  }
+  if (s.hub) codes.add(s.hub);
+  for (const h of Object.keys(s.hubs ?? {})) codes.add(h);
+  return [...codes].sort();
+}
+
+/**
+ * The part of everyone else's advertising one airline's specs can see.
+ *
+ * Rival drag at an airport is the running sum, in the order the competitors
+ * are listed, of what each of them adds there (voiceSignatures). So the drag
+ * at every airport this airline flies is fixed by: for each such airport, the
+ * ordered list of the OTHER airlines that advertise there, with what they add.
+ * That list is the key.
+ * An airline that opens a route to an airport this one never touches changes
+ * nobody's key but its own. (Until 2026-11-12 the key was every other
+ * airline's digest, so any route opened anywhere re-scored the whole world.)
+ */
+function adVoiceKeyFor(row, contributorsAt) {
   const h = createHash('sha1');
-  for (const c of competitors ?? []) h.update(adVoiceDigest(c)).update('|');
+  for (const code of ownAirports(row)) {
+    const list = contributorsAt.get(code);
+    if (!list) continue;
+    h.update(code).update(':');
+    for (const [id, sig] of list) if (id !== row.id) h.update(id).update('=').update(sig).update(',');
+    h.update('|');
+  }
   return h.digest('base64');
 }
 
@@ -791,12 +850,25 @@ export function buildRivalViews(airlines, allianceMap = new Map(), memo = null) 
   const othersOf = new Map(airlines.map((me) => [
     me.id, active.filter((o) => o.id !== me.id).map((o) => comps.get(o.id)),
   ]));
+  // Who advertises where (for the spec keys below): airport -> [id, digest]
+  // in competitor order. Only built when there is a memo to key.
+  let contributorsAt = null;
+  if (memo) {
+    contributorsAt = new Map();
+    for (const o of active) {
+      for (const [code, sig] of voiceSignatures(comps.get(o.id))) {
+        const list = contributorsAt.get(code);
+        if (list) list.push([o.id, sig]); else contributorsAt.set(code, [[o.id, sig]]);
+      }
+    }
+  }
   const specs = new Map(active.map((a) => {
     const others = othersOf.get(a.id);
     if (!memo) return [a.id, toRivalSpecs(a, { competitors: others })];
     // A spec is scored from the airline's own row and — through its brand,
-    // which rival advertising drags — from where everyone else advertises.
-    const key = `${prints.get(a.id)}\u0001${adVoiceKey(others)}`;
+    // which rival advertising drags — from what everyone else spends at the
+    // airports it flies (adVoiceKeyFor).
+    const key = `${prints.get(a.id)}\u0001${adVoiceKeyFor(a, contributorsAt)}`;
     const kept = memo.specs.get(a.id);
     if (kept && kept.key === key) return [a.id, kept.value];
     memo.derived.specs++;

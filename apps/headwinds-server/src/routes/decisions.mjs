@@ -31,6 +31,7 @@ import { stampDelta } from '../lib/stamp.mjs';
 import { splitLogo, injectLogo } from '../lib/logoColumn.mjs';
 import { joinReport, reportWriteFor } from '../lib/reportColumn.mjs';
 import { wantsLeanReply, leanReply } from '../lib/leanReply.mjs';
+import { rivalsReply } from '../lib/rivalDelta.mjs';
 import { stopwatch, shouldLogPerf, decisionPerfLine } from '../lib/perfLog.mjs';
 import { Prisma } from '@prisma/client';
 import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
@@ -183,6 +184,9 @@ export default async function decisionRoutes(fastify) {
         properties: {
           stamp: { type: 'string', maxLength: 80 },
           split: { type: 'string', maxLength: 1 },
+          // The world stamp of the rival overlay the client holds: with it the
+          // overlay comes back as what changed (lib/rivalDelta.mjs).
+          rbase: { type: 'string', maxLength: 40 },
         },
       },
     },
@@ -257,7 +261,7 @@ export default async function decisionRoutes(fastify) {
         // The floor can hand back exactly what the client already holds. Say so
         // instead of resending it.
         if (request.query.stamp === stamp) return { ...base, stamp, unchanged: true };
-        return { ...base, stamp, rivals: rivalOverlay(view) };
+        return { ...base, stamp, ...rivalsReply(slim.id, served, rivalOverlay(view), request.query.rbase) };
       }
 
       // Our own version moved (own decision, or a tick landed): the blob is
@@ -280,7 +284,7 @@ export default async function decisionRoutes(fastify) {
         ...base,
         stamp: `${slim.version}:${served}`,
         state: withRivals(injectLogo(joinReport(airline.state, airline.report), airline.customLogo, airline.customTail), null),
-        rivals: rivalOverlay(view),
+        ...rivalsReply(slim.id, served, rivalOverlay(view), request.query.rbase),
       };
     }
 

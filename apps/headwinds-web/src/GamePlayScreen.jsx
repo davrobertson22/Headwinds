@@ -39,7 +39,8 @@ import { carryProjectWeek } from '../../../src/utils/financeProjection.js';
 import { compareDecisionResult, overlayOf } from './decisionAdoption.js';
 import { applyStatePatch } from '../../../packages/engine/src/utils/statePatch.js';
 import { selfVersionOf, withSelfVersion, advanceShadow } from './leanDecisions.js';
-import { createScreenMemory, SCREEN_ONLY_ACTIONS } from './screenMemory.js';
+import { applyRivalsPatch, worldHalfOf } from './rivalDelta.js';
+import { createScreenMemory, SCREEN_ONLY_ACTIONS, withScreenFields } from './screenMemory.js';
 import { borrowProjection, hasBorrowedProjection, settleBorrowed, inheritBorrowed } from './ownProjection.js';
 import '../../../src/index.css';
 
@@ -134,6 +135,9 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   // The server's copy of our airline as last confirmed, and its version
   // (leanDecisions.js): what a lean decision reply is a patch against.
   const shadow = useRef(null);
+  // The last whole rival overlay a poll brought, and the world stamp it
+  // reflected (rivalDelta.js): what a rival patch is applied to.
+  const rivalShadow = useRef(null);
 
   // Timestamp of the last poll that actually reached the server. Everything
   // about "are we still connected?" is derived from this.
@@ -163,9 +167,25 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
       // rival moved. Between ticks the overwhelming majority of polls come back
       // as overlay-only, which is the whole point — we used to re-download the
       // entire save because somebody else changed a fare.
+      //
+      // `rbase` names the rival overlay we hold (rivalShadow) so a rival's move
+      // comes back as what it changed, not 3 MB of every rival (rivalDelta.js).
+      const held = !full ? rivalShadow.current : null;
       const q = !full && stampRef.current && stateRef.current
-        ? `?split=1&stamp=${encodeURIComponent(stampRef.current)}` : '?split=1';
+        ? `?split=1&stamp=${encodeURIComponent(stampRef.current)}${held ? `&rbase=${encodeURIComponent(held.served)}` : ''}` : '?split=1';
       const d = await authedApi(`/worlds/${worldId}/airline${q}`, { token });
+      if (d.rivalsPatch) {
+        // Rebuild the overlay from the one it was cut against. A patch that does
+        // not fit what we hold is dropped WITHOUT taking its stamp, so the next
+        // poll asks again — and, holding nothing, gets the whole overlay.
+        let rebuilt = null;
+        try {
+          if (held && held === rivalShadow.current && held.served === d.rivalsPatch.base) rebuilt = applyRivalsPatch(held.overlay, d.rivalsPatch);
+        } catch { rebuilt = null; }
+        if (!rebuilt) { rivalShadow.current = null; return; }
+        d.rivals = rebuilt;
+      }
+      if (d.rivals) rivalShadow.current = { served: worldHalfOf(d.stamp), overlay: d.rivals };
       lastOkRef.current = Date.now();
       setConnLost(false);
       // Keep the SAME meta object when the poll says nothing new. A fresh object
@@ -532,7 +552,12 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
   const settleDecision = useCallback(async (serverState, seq) => {
     if (seq !== decisionSeq.current || !serverState) return;
     const local = stateRef.current;
-    const server = serverState;
+    // The fields a screen-only action changes (SCREEN_ONLY_FIELDS: the pop-up
+    // queue, whether the debrief is open) are this browser's, not the
+    // server's. Without this, one dismissal left the screen "different" from
+    // the server for good, and every later click was adopted — and projected
+    // on this thread, 1 s at 4,000 routes — instead of matching.
+    const server = withScreenFields(serverState, local);
     // A pre-tick response landing after the weekly poll advanced us: never
     // roll the week backwards.
     const olderWeek = (cur) => server.week != null && cur?.week != null && absWeekOfState(server) < absWeekOfState(cur);

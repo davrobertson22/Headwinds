@@ -2218,10 +2218,21 @@ export function routeLandingFee(route, type, weeklyFrequency) {
  * Distance in km between two airport IATA codes.
  * Returns 0 if either code is unknown.
  */
+// Every block-hour figure runs through here, for every leg, month and tail:
+// the Fleet page asked it ~1.5 million times to open at 4,900 tails (half a
+// second of trigonometry, measured 2026-11-12). Airports never move, so each
+// pair is worked out once. The memo is keyed on the two airport records, so an
+// unknown code (0) is never cached and a replaced record is a new key.
+const ROUTE_KM = new WeakMap();   // origin airport -> Map(dest airport -> km)
 export function routeDistanceKm(originCode, destCode) {
   const o = getAirport(originCode);
   const d = getAirport(destCode);
-  return o && d ? Math.round(distanceKm(o, d)) : 0;
+  if (!o || !d) return 0;
+  let row = ROUTE_KM.get(o);
+  if (!row) { row = new Map(); ROUTE_KM.set(o, row); }
+  let km = row.get(d);
+  if (km === undefined) { km = Math.round(distanceKm(o, d)); row.set(d, km); }
+  return km;
 }
 
 // ─────────────────────────────────────────────

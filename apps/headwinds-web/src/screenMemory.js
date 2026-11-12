@@ -120,3 +120,23 @@ export function createScreenMemory(airlineId, storage = browserStorage()) {
 
 /** Reducer actions that only change what is on this player's screen. */
 export const SCREEN_ONLY_ACTIONS = new Set(['CLEAR_TOASTS', 'DISMISS_DEBRIEF']);
+
+/** The state fields those actions write (engine reducer CLEAR_TOASTS / DISMISS_DEBRIEF). */
+export const SCREEN_ONLY_FIELDS = Object.freeze(['pendingToasts', 'showDebrief']);
+
+/**
+ * The server's state with the screen-only fields as this browser has them.
+ * Used when a decision reply is compared with the screen: the server never
+ * sees a screen-only action, so its copy of those fields is not news. Same
+ * object back when nothing differs, so a reply that matches stays "same".
+ */
+export function withScreenFields(server, local) {
+  if (!server || !local) return server;
+  let out = server;
+  for (const k of SCREEN_ONLY_FIELDS) {
+    if (server[k] === local[k]) continue;
+    if (out === server) out = { ...server };
+    if (k in local) out[k] = local[k]; else delete out[k];
+  }
+  return out;
+}
