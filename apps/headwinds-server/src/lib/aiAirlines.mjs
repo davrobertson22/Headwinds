@@ -48,6 +48,7 @@ import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { decisionDenialFor, eventRulesOfWorld } from './worldConfig.mjs';
 import { guardDecision } from './decisionGuard.mjs';
 import { routeBlockReasonFor } from './routeBlocks.mjs';
+import { eraBlockReasonFor } from './eraBlocks.mjs';
 import { journalledPayload, withFleetFacts } from './publicDecisions.mjs';
 import { buildWorldRivalViews, withRivals, stripRivals, loadAllianceMap } from './humanRivals.mjs';
 import { isGateScarcity, applyGateDecisionTx } from './gateService.mjs';
@@ -232,6 +233,8 @@ export function playerChecks(world, state, type, payload) {
   }
   const blocked = routeBlockReasonFor(type, state, { type, ...guarded });
   if (blocked) throw new Error(blocked);
+  const tooEarly = eraBlockReasonFor(type, state);
+  if (tooEarly) throw new Error(tooEarly);
   if (isGateScarcity(world) && type === 'ADD_GATE') {
     const full = gateLeaseDenial(state, guarded.airportCode);
     if (full) throw new Error(full);

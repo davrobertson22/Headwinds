@@ -13,6 +13,7 @@ import { assertSupporterAccess } from '../lib/access.mjs';
 import { ALLOWED_PLAYER_ACTIONS } from '../world.mjs';
 import { gameReducer, gateLeaseDenial, leaseDenial, isIdSeed, idSeedInUse } from '@tailwinds/engine/reducer';
 import { routeBlockReasonFor } from '../lib/routeBlocks.mjs';
+import { eraBlockReasonFor } from '../lib/eraBlocks.mjs';
 import { journalledPayload, withFleetFacts } from '../lib/publicDecisions.mjs';
 import { weekIndex, nextTickAt } from '../lib/tickService.mjs';
 import { paceLabel, worldStageOf, MAX_RESTARTS, decisionDenialFor, eventRulesOfWorld, worldTotalWeeks } from '../lib/worldConfig.mjs';
@@ -439,6 +440,15 @@ export default async function decisionRoutes(fastify) {
     // lib/routeBlocks.mjs maps all three to their engine helper.
     {
       const reason = routeBlockReasonFor(type, injected, { type, ...guarded });
+      if (reason) throw httpError(400, reason);
+    }
+
+    // Era worlds: Wi-Fi in 1971, a lounge network in 1960, an alliance in 1955.
+    // The engine refuses these with a toast, which is a NEW state object, so
+    // `changed` below would read the refusal as a change and reply 201. Say it
+    // as a 400 instead, so the client rolls back and shows the sentence.
+    {
+      const reason = eraBlockReasonFor(type, injected);
       if (reason) throw httpError(400, reason);
     }
 

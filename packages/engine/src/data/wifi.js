@@ -51,6 +51,7 @@
  */
 
 import { getAircraftType, canFitWifi, wifiAirframeDenial } from './aircraft.js';
+import { featureLive, ERA_FEATURE_MESSAGE } from './eraFeatures.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -209,8 +210,16 @@ export function wifiCoverageFor(aircraft) {
  * @param {number}   cash
  * @returns {{ ok, reasons: string[], eligible: object[], unitCost, capex }}
  */
-export function canRetrofitWifi(aircraftList = [], cash = 0) {
+export function canRetrofitWifi(aircraftList = [], cash = 0, { calYear = null } = {}) {
   const unitCost   = wifiRetrofitCost();
+  // Era worlds: before onboard internet exists there is nothing to quote — no
+  // eligible tails and no airframe excuse, just the era sentence. Without this
+  // the Fleet selection bar offered a live retrofit button in 1971 (Discord,
+  // Timely Takeoff, 2026-11-12) whose click then did nothing.
+  if (!featureLive('wifi', calYear)) {
+    return { ok: false, reasons: [ERA_FEATURE_MESSAGE.wifi], eligible: [], unfittable: [],
+             unitCost, capex: 0, eraLocked: true };
+  }
   const candidates = (aircraftList ?? []).filter(
     a => a && !isWifiEquipped(a) && a.status !== 'retired');
   // Airframes that could never carry an installation are dropped from the

@@ -35,7 +35,9 @@ test('the reducer refuses era-locked features and allows them once live', () => 
   assert.equal(anc.ancillaries ?? null, null, 'no à la carte pricing before 2008');
   const wifi = gameReducer(eraState(1950, 1995, { fleet: [{ id: 'x1', typeId: 'b737400', ageWeeks: 0, status: 'idle' }] }),
     { type: 'INSTALL_WIFI', aircraftIds: ['x1'] });
-  assert.ok(!wifi.fleet.find(a => a.id === 'x1')?.wifi, 'no Wi-Fi before 2004');
+  // The field is hasWifi — this used to read `.wifi`, which is never set, so
+  // the assertion could not fail.
+  assert.equal(wifi.fleet.find(a => a.id === 'x1')?.hasWifi ?? false, false, 'no Wi-Fi before 2004');
   const lounge = gameReducer(eraState(1950, 1960), { type: 'BUILD_LOUNGE', code: 'JFK', airportCode: 'JFK' });
   assert.equal(Object.keys(lounge.lounges ?? {}).length, 0, 'no lounge network before 1985');
   // Classic worlds see no denial at all — the parity invariant.

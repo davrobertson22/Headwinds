@@ -588,7 +588,7 @@ function WifiBadge({ aircraft }) {
   const { state, dispatch } = useGame();
   const confirm = useConfirm();
   const fitted  = isWifiEquipped(aircraft);
-  const quote   = canRetrofitWifi([aircraft], state.cash);
+  const quote   = canRetrofitWifi([aircraft], state.cash, { calYear: eraCalendarYear(state) });
 
   if (fitted) {
     return (
@@ -2399,7 +2399,9 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
   // Wi-Fi retrofit: only tails that don't already have it. Quoted through the
   // engine's own canRetrofitWifi so the number on the button is the number the
   // reducer takes — the same shared-predicate rule canBuildBase follows.
-  const wifiQuote         = canRetrofitWifi(checkedAircraft, cash);
+  // Era-aware: before 2004 nothing is eligible and nothing is unfittable, so
+  // the bar shows neither the button nor the airframe excuse.
+  const wifiQuote         = canRetrofitWifi(checkedAircraft, cash, { calYear: eraCalendarYear(state) });
   const checkedNoWifi     = wifiQuote.eligible;
   // Wingtip retrofit, same shape: only tails whose type has a device and that
   // don't already carry one, priced by the engine's canRetrofitWingtips.

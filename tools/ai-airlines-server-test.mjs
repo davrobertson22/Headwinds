@@ -366,7 +366,7 @@ await t('TRIPWIRE: the decisions route runs no refusal that playerChecks does no
   const from = src.indexOf("fastify.post('/worlds/:id/decisions'"); const to = src.indexOf('gameReducer(injected, action)', from);
   assert.ok(from > 0 && to > from, 'could not find the decisions handler — has it moved?');
   const called = new Set([...src.slice(from, to).matchAll(/\b([A-Za-z]*(?:Denial|DenialFor|BlockReasonFor|Clash)|guardDecision|assertFinitePayload)\(/g)].map((m) => m[1]));
-  const mirrored = ['decisionDenialFor', 'guardDecision', 'eventActionDenial', 'routeBlockReasonFor', 'gateLeaseDenial', 'leaseDenial'];
+  const mirrored = ['decisionDenialFor', 'guardDecision', 'eventActionDenial', 'routeBlockReasonFor', 'eraBlockReasonFor', 'gateLeaseDenial', 'leaseDenial'];
   const notForBots = ['brandingClash', 'assertFinitePayload'];   // SET_BRANDING only; a JSON-body check the bot's own objects cannot fail
   const lib = readFileSync(new URL('../apps/headwinds-server/src/lib/aiAirlines.mjs', import.meta.url), 'utf8');
   for (const name of mirrored) { assert.ok(called.has(name), `${name} is no longer called by the route — remove it from playerChecks too?`); assert.ok(lib.includes(`${name}(`), `playerChecks no longer calls ${name}`); }

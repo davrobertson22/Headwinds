@@ -32,6 +32,23 @@ export const ERA_FEATURE_MESSAGE = {
 };
 
 /**
+ * The reducer actions each feature gates — every case that calls
+ * refuseEraFeature(state, feature), listed once so the Headwinds server can
+ * pre-flight the refusal into a 400 (apps/headwinds-server/src/lib/eraBlocks.mjs).
+ * The refusal returns a NEW state (it carries a toast), so without the
+ * pre-flight the decision endpoint reads it as a change and replies 201.
+ * tools/wifi-era-retrofit-test.mjs fails if this drifts from the reducer.
+ */
+export const ERA_GATED_ACTIONS = {
+  INSTALL_WIFI:           'wifi',
+  BUILD_LOUNGE:           'lounges',
+  SET_ANCILLARIES:        'ancillaries',
+  SET_LOYALTY_GENEROSITY: 'loyaltyPrograms',
+  JOIN_ALLIANCE:          'globalAlliances',
+  SIGN_CODESHARE:         'codeshares',
+};
+
+/**
  * Is this feature available at this calendar year?
  * calYear null (classic world) → always true.
  */
