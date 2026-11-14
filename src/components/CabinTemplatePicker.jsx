@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { Glyph } from './Icons.jsx';
+import { getAircraftType } from '../data/aircraft.js';
+import { typicalSeatsOf } from '../utils/simulation.js';
+import { makePreset, PRESET_OPTIONS } from '../utils/cabinPresets.js';
 
 /**
  * Save / apply / delete cabin configuration templates.
  * Templates are per aircraft type — only templates matching `typeId` are shown.
+ * The Route Planner's standard layouts are listed too ("Standard layouts"),
+ * sized to this type, so a preset picked while planning can be bought as-is.
  *
  * Props:
  *   typeId        — aircraft type the dialog is configuring
@@ -19,7 +24,37 @@ export default function CabinTemplatePicker({ typeId, currentConfig, onApply }) 
   const [name, setName]             = useState('');
   const [selectedId, setSelectedId] = useState('');
 
+  const type = getAircraftType(typeId);
+  const presets = type
+    ? PRESET_OPTIONS.map(p => ({ id: `preset:${p.id}`, label: p.label, config: makePreset(p.id, type.seats, typicalSeatsOf(type)) }))
+    : [];
+
   const selected = templates.find(t => t.id === selectedId) ?? null;
+  const selectedPreset = presets.find(p => p.id === selectedId) ?? null;
+
+  // A standard layout sets the seat counts and keeps the seat and service
+  // quality already chosen. It carries no products, so seat products reset to
+  // the defaults its counts were sized for.
+  function handleApply() {
+    if (selected) { onApply({ ...selected.config }); return; }
+    if (!selectedPreset) return;
+    const p = selectedPreset.config;
+    onApply({
+      firstClass: p.firstClass, businessClass: p.businessClass,
+      premiumEconomy: p.premiumEconomy, economy: p.economy,
+      seatQuality:    currentConfig?.seatQuality    ?? p.seatQuality,
+      serviceQuality: currentConfig?.serviceQuality ?? p.serviceQuality,
+    });
+  }
+
+  function seatSummary(cfg) {
+    return [
+      cfg.firstClass     > 0 && `${cfg.firstClass}F`,
+      cfg.businessClass  > 0 && `${cfg.businessClass}J`,
+      cfg.premiumEconomy > 0 && `${cfg.premiumEconomy}W`,
+      `${cfg.economy ?? 0}Y`,
+    ].filter(Boolean).join('/');
+  }
 
   function handleSave() {
     const trimmed = name.trim();
@@ -52,7 +87,7 @@ export default function CabinTemplatePicker({ typeId, currentConfig, onApply }) 
           <Glyph e="📋" /> Templates
         </span>
 
-        {templates.length > 0 ? (
+        {(templates.length > 0 || presets.length > 0) ? (
           <>
             <select
               value={selectedId}
@@ -62,16 +97,27 @@ export default function CabinTemplatePicker({ typeId, currentConfig, onApply }) 
                 border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer',
               }}
             >
-              <option value="">Choose a template…</option>
-              {templates.map(t => (
-                <option key={t.id} value={t.id}>{t.name} — {summarize(t.config)}</option>
-              ))}
+              <option value="">Choose a layout…</option>
+              {templates.length > 0 && (
+                <optgroup label="Your templates">
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name} — {summarize(t.config)}</option>
+                  ))}
+                </optgroup>
+              )}
+              {presets.length > 0 && (
+                <optgroup label="Standard layouts">
+                  {presets.map(p => (
+                    <option key={p.id} value={p.id}>{p.label} — {seatSummary(p.config)}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <button
               className="btn btn-primary"
               style={{ padding: '4px 12px', fontSize: 12 }}
-              disabled={!selected}
-              onClick={() => selected && onApply({ ...selected.config })}
+              disabled={!selected && !selectedPreset}
+              onClick={handleApply}
             >
               Apply
             </button>
