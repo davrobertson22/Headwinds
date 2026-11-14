@@ -47,6 +47,7 @@ import useIsMobile from './hooks/useIsMobile.js';
 import MapShell, { readLayout, writeLayout, MAP_TAB, readInviteOpen, closeInvite, resolveMapPage } from './components/MapShell.jsx';
 import useNavFavourites from './hooks/useNavFavourites.js';
 import { toggleNavFavourite, NAV_FAVOURITES_LIMIT } from './utils/navFavourites.js';
+import { backdropDismiss } from './utils/backdropDismiss.js';
 
 // Build stamp — injected by vite.config.js `define`. Guarded so non-Vite contexts
 // (e.g. node test harnesses that don't import App) never trip over the globals.
@@ -760,7 +761,7 @@ function AppInner() {
 
       {/* New Game confirmation */}
       {showNewGameConfirm && (
-        <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) setShowNewGameConfirm(false); }}>
+        <div className="saveload-overlay" {...backdropDismiss(() => setShowNewGameConfirm(false))}>
           <div className="confirm-modal">
             <h2 className="confirm-modal-title">Start a New Game?</h2>
             <p className="confirm-modal-body">

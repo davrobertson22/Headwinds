@@ -5,6 +5,7 @@ import { AlertIcon, HeartIcon } from './Icons.jsx';
 import { leasesAtRisk, leaseWarnPhrase } from '../utils/leaseAlerts.js';
 import { subscribeAwayDigest, pendingAwayWeeks } from '../utils/awayDigest.js';
 import { netProfitOf } from '../utils/standings.js';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 export default function WeeklyDebrief() {
   const { state, dispatch, remoteApi } = useGame();
@@ -132,7 +133,7 @@ export default function WeeklyDebrief() {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 900,
       }}
-      onClick={e => { if (e.target === e.currentTarget) dismiss(); }}
+      {...backdropDismiss(() => dismiss())}
     >
       <div style={{
         background: 'var(--surface)',

@@ -18,8 +18,10 @@
 //   * The old tail is then sold (owned), handed back (leased, with the normal
 //     early-return terms), or kept as a spare.
 //   * The world moved on while the order was building: if the old tail is in
-//     the shop or on a charter, the new one WAITS; if it is gone, or picked up a
-//     route the new type cannot fly, the new one arrives idle and says why.
+//     the shop, the new one takes over anyway (any reserve cover ends) and the
+//     old one leaves from the shop; only a tail that is itself out covering
+//     for a broken aircraft makes it WAIT. If the old tail is gone, or picked
+//     up a route the new type cannot fly, the new one arrives idle and says why.
 //   * An order with no replacement is byte-for-byte today's delivery.
 //
 //   * Headwinds: a tail the renewal sold is reported on `renewalSales` so the
@@ -289,7 +291,12 @@ test('old tail picked up a route the new type cannot reach: no swap, reason give
   assert.ok((s.pendingToasts ?? []).some(x => /range/i.test(x.message ?? '')));
 });
 
-test('old tail in the shop: the new one waits, then swaps when it is back', () => {
+// Discord (Kat the Fox, 2026-11-12): a replacement that sat idle for weeks
+// while the tail it replaces finished a check. It is a NEW aircraft taking
+// over and the old one is leaving: there is nothing to wait for. The shop
+// visit ends with the sale (or the lease return), and the new tail flies the
+// routes from the week it arrives.
+test('old tail grounded: the new one takes over at once and the old one leaves from the shop', () => {
   let s = order(world(), { replaces: ['old1'], replaceDisposal: 'dispose' });
   s = dueNextWeek(s);
   s = { ...s, fleet: s.fleet.map(a => a.id === 'old1'
@@ -297,29 +304,110 @@ test('old tail in the shop: the new one waits, then swaps when it is back', () =
   const before = s;
   s = advance(s);
   const [nu] = deliveredOf(before, s);
-  assert.ok(nu.replacing, 'still waiting to take over');
-  assert.equal(nu.replacing.aircraftId, 'old1');
-  assert.ok(nu.replacing.waiting, 'and it says why');
-  assert.ok(s.fleet.some(a => a.id === 'old1'), 'the old tail was not sold out of the shop');
-  // Back in service → the next tick completes the swap.
-  s = { ...s, fleet: s.fleet.map(a => a.id === 'old1' ? { ...a, status: 'assigned', groundedWeeksLeft: 0, groundedReason: null } : a),
-        routes: s.routes.map(r => r.coverForAircraftId ? { ...r, aircraftId: r.coverForAircraftId, coverForAircraftId: null } : r) };
-  s = advance(s);
-  assert.ok(!s.fleet.some(a => a.id === 'old1'), 'sold once it was back');
+  assert.ok(!nu.replacing, `did not wait (${nu.replacing?.waiting ?? ''})`);
+  assert.equal(nu.status, 'assigned');
   assert.equal(s.routes.find(r => r.id === 'r1').aircraftId, nu.id);
-  assert.ok(!s.fleet.find(a => a.id === nu.id).replacing);
+  assert.equal(s.routes.find(r => r.id === 'r2').aircraftId, nu.id);
+  assert.ok(!s.fleet.some(a => a.id === 'old1'), 'sold out of the shop');
 });
 
-test('a waiting tail can be released by the player', () => {
-  let s = order(world(), { replaces: ['old1'], replaceDisposal: 'dispose' });
+test('old tail in a maintenance check: same, and a leased one goes back to the lessor', () => {
+  let s = order(world({ fleet: [
+    tail('old1', OLD, { ownershipType: 'lease', weeklyLease: 50_000, leaseRemainingWeeks: 2, leaseTermWeeks: 260 }),
+    tail('old2', OLD), tail('old3', OLD, { status: 'idle' }),
+  ] }), { replaces: ['old1'], replaceDisposal: 'dispose' });
   s = dueNextWeek(s);
-  s = { ...s, fleet: s.fleet.map(a => a.id === 'old1' ? { ...a, status: 'grounded', groundedWeeksLeft: 3, groundedReason: 'aog' } : a) };
+  s = { ...s, fleet: s.fleet.map(a => a.id === 'old1' ? { ...a, status: 'maintenance', checkWeeksLeft: 4 } : a) };
   const before = s;
   s = advance(s);
   const [nu] = deliveredOf(before, s);
-  assert.ok(nu.replacing, 'waiting');
+  assert.ok(!nu.replacing);
+  assert.equal(s.routes.find(r => r.id === 'r1').aircraftId, nu.id);
+  assert.ok(!s.fleet.some(a => a.id === 'old1'), 'handed back');
+});
+
+test('a reserve covering the old tail is released: routes go to the new tail, the reserve stands by again', () => {
+  let s = order(world({ fleet: [
+    tail('old1', OLD), tail('old2', OLD),
+    tail('res1', OLD, { status: 'idle', reserveBase: 'JFK' }),
+  ] }), { replaces: ['old1'], replaceDisposal: 'dispose' });
+  s = dueNextWeek({ ...s, hubs: { ...(s.hubs ?? {}), JFK: s.hubs?.JFK ?? { tier: 1, tierSince: 1 } } });
+  s = { ...s, fleet: s.fleet.map(a => a.id === 'old1'
+    ? { ...a, status: 'grounded', groundedWeeksLeft: 3, groundedReason: 'aog' } : a) };
+  const before = s;
+  s = advance(s);
+  const [nu] = deliveredOf(before, s);
+  assert.ok(!nu.replacing, `did not wait (${nu.replacing?.waiting ?? ''})`);
+  for (const id of ['r1', 'r2']) {
+    const r = s.routes.find(x => x.id === id);
+    assert.equal(r.aircraftId, nu.id, `${id} on the new tail`);
+    assert.ok(!r.coverForAircraftId, `${id} is no longer a cover`);
+  }
+  const res = s.fleet.find(a => a.id === 'res1');
+  assert.equal(res.reserveBase, 'JFK', 'still a reserve');
+  assert.equal(res.status, 'idle', 'standing by, not flying');
+  assert.ok(!s.fleet.some(a => a.id === 'old1'));
+});
+
+// The one case still worth waiting for: the tail being replaced is itself a
+// reserve flying cover for a broken aircraft. Taking it away now would ground
+// that aircraft's routes; they come home within weeks and the swap follows.
+test('replacing a reserve that is out covering waits, and the player can release it', () => {
+  let s = order(world({ fleet: [
+    tail('old1', OLD), tail('old2', OLD),
+    tail('res1', OLD, { status: 'idle', reserveBase: 'JFK' }),
+  ] }), { replaces: ['res1'], replaceDisposal: 'dispose' });
+  s = dueNextWeek({ ...s, hubs: { ...(s.hubs ?? {}), JFK: s.hubs?.JFK ?? { tier: 1, tierSince: 1 } } });
+  s = { ...s, fleet: s.fleet.map(a => a.id === 'old1'
+    ? { ...a, status: 'grounded', groundedWeeksLeft: 3, groundedReason: 'aog' } : a) };
+  const before = s;
+  s = advance(s);
+  const [nu] = deliveredOf(before, s);
+  assert.equal(s.routes.find(r => r.id === 'r1').aircraftId, 'res1', 'the reserve is covering r1');
+  assert.ok(nu.replacing?.waiting, 'waits, and says why');
+  assert.ok(s.fleet.some(a => a.id === 'res1'), 'the covering reserve was not sold');
   s = gameReducer(s, { type: 'CLEAR_FLEET_REPLACEMENT', aircraftId: nu.id });
   assert.ok(!s.fleet.find(a => a.id === nu.id).replacing);
+});
+
+// Discord (2026-11-14): "replacing reserve aircraft doesn't place them on
+// reserve". A reserve flies nothing of its own — its job IS the standby slot —
+// so the new tail must take over the slot, or the swap quietly drops the cover.
+const reserveWorld = () => {
+  const s = world({ fleet: [
+    tail('old1', OLD), tail('old2', OLD),
+    tail('res1', OLD, { status: 'idle', reserveBase: 'JFK' }),
+  ] });
+  return { ...s, hubs: { ...(s.hubs ?? {}), JFK: s.hubs?.JFK ?? { tier: 1, tierSince: 1 } } };
+};
+test('replacing an idle reserve puts the new tail on standby at the same base', () => {
+  let s = dueNextWeek(order(reserveWorld(), { replaces: ['res1'], replaceDisposal: 'dispose' }));
+  const before = s;
+  s = advance(s);
+  const [nu] = deliveredOf(before, s);
+  assert.ok(!nu.replacing, `the swap ran (${nu.replacing?.waiting ?? ''})`);
+  assert.equal(nu.reserveBase, 'JFK', 'the replacement took over the reserve slot');
+  assert.equal(nu.status, 'idle', 'standing by');
+  assert.ok(!s.fleet.some(a => a.id === 'res1'), 'the old reserve was sold');
+  assert.ok((s.pendingToasts ?? []).some(x => /reserve slot at JFK/.test(x.message ?? '')), 'the toast says so');
+});
+test('a kept reserve hands its slot over rather than both standing by', () => {
+  let s = dueNextWeek(order(reserveWorld(), { replaces: ['res1'], replaceDisposal: 'keep' }));
+  const before = s;
+  s = advance(s);
+  const [nu] = deliveredOf(before, s);
+  assert.equal(nu.reserveBase, 'JFK');
+  const kept = s.fleet.find(a => a.id === 'res1');
+  assert.ok(kept, 'kept as a spare');
+  assert.ok(!kept.reserveBase, 'no second readiness bill for the same slot');
+});
+test('replacing a line aircraft does not invent a reserve', () => {
+  let s = dueNextWeek(order(reserveWorld(), { replaces: ['old2'], replaceDisposal: 'dispose' }));
+  const before = s;
+  s = advance(s);
+  const [nu] = deliveredOf(before, s);
+  assert.ok(!nu.reserveBase);
+  assert.equal(s.fleet.find(a => a.id === 'res1').reserveBase, 'JFK', 'the existing reserve is untouched');
 });
 
 test('a tail pledged against a loan is not sold: routes move, it stays as a spare', () => {

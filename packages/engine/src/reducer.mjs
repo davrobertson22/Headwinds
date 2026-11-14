@@ -114,7 +114,6 @@ import { rollIncident, incidentCauseLine } from './models/incidents.js';
 import { issueMandate, mandateMet, mandateDesc, mandateTitle, mandateIcon, quarterOf, MANDATE } from './models/boardMandates.js';
 import { deliverySchedule } from './data/delivery.js';
 import { makeSlotAllocator, cancelTerms, launchWindow, launchOrderDiscount } from './data/productionLines.js';
-import { preorderWindow, preorderOrderDiscount, preorderDeposit, PREORDER_DEPOSIT, absWeekLabel, newlyDelayed, programmeDelayWeeks } from './data/preorders.js';
 import {
   COMPETITOR_AIRLINES,
   initializeCompetitorRoutes,
@@ -523,13 +522,36 @@ export function planTypeReplacement(state, orderTypeId, fromTypeId) {
 export function replacementWait(state, oldTail) {
   if (!oldTail) return null;
   const id = oldTail.id;
-  if (isOutOfService(oldTail)) {
-    return oldTail.status === 'maintenance' ? `${oldTail.name} is in a maintenance check` : `${oldTail.name} is grounded`;
-  }
+  // A tail in the shop does NOT hold up its replacement (Discord, Kat the Fox,
+  // 2026-11-12: "this is not reserve, this is a replacement"). The new aircraft
+  // takes over the routes the week it arrives — any reserve cover on them ends
+  // — and the old one leaves from the shop. The one wait left: the tail being
+  // replaced is itself a reserve out covering a broken aircraft, whose routes
+  // would be grounded if it left now. They come home and the swap follows.
+  if (isOutOfService(oldTail)) return null;
   const ops = [...(state.routes ?? []), ...(state.cargoRoutes ?? [])];
-  if (ops.some(r => r.coverForAircraftId === id)) return `a reserve is covering ${oldTail.name}'s routes`;
   if (ops.some(r => r.aircraftId === id && r.coverForAircraftId)) return `${oldTail.name} is covering for another aircraft`;
   return null;
+}
+
+// End every reserve cover on the routes a replaced tail owns: they come home to
+// it so TRANSFER_ROUTES can hand them to the new tail. A reserve left flying
+// nothing goes back to standing by (its base is kept).
+function endCoversFor(state, aircraftId) {
+  const freed = new Set();
+  const home = (list) => (list ?? []).map(r => {
+    if (r.coverForAircraftId !== aircraftId) return r;
+    freed.add(r.aircraftId);
+    return { ...r, aircraftId, coverForAircraftId: null };
+  });
+  const routes = home(state.routes);
+  const cargoRoutes = home(state.cargoRoutes);
+  if (freed.size === 0) return state;
+  const flying = new Set([...routes, ...cargoRoutes].map(r => r.aircraftId));
+  return {
+    ...state, routes, cargoRoutes,
+    fleet: state.fleet.map(a => (freed.has(a.id) && !flying.has(a.id)) ? withRouteStatus(a, 'idle') : a),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -1462,21 +1484,6 @@ export function orderDenial(state, typeId) {
     return null;
   }
   const avail = cometWithdrawn(state, type.id) ? 'expired' : aircraftAvailability(type, cy);
-  // Preorders (data/preorders.js): announced two years ahead, open to every
-  // airline until the first delivery — which a programme slip can push past
-  // the start of the entry-into-service year. ORDER_AIRCRAFT reads this code
-  // as "allowed, on preorder terms". The launch window, where there is one,
-  // comes first (preorderWindow is null while it is open).
-  const pw = avail !== 'expired' ? preorderWindow(state, type) : null;
-  if (pw) {
-    const pct = Math.round(PREORDER_DEPOSIT * 100);
-    return {
-      code: 'preorder', typeId: type.id, eis: type.eis,
-      firstDeliveryAbs: pw.firstDeliveryAbs, eisAbs: pw.eisAbs, delayWeeks: pw.delayWeeks,
-      discount: pw.discount, deposit: pw.deposit,
-      message: `The ${type.name} is in development${pw.delayWeeks > 0 ? ' and running late' : ''}. Preorder it now: bought outright, ${pct}% deposit, the balance as each frame arrives, deliveries from ${absWeekLabel(state, pw.firstDeliveryAbs)}.`,
-    };
-  }
   if (avail === 'future') {
     // Production-line era worlds: announced two years ahead, and launch
     // customers may order during the first 26 weeks (data/productionLines.js).
@@ -1571,15 +1578,6 @@ export function cometWithdrawn(state, typeId) {
 // (forfeit by nearness, launch frames firm); everything else the classic ones
 // (95% of a purchase back, a lease deposit in full).
 export function orderCancelRefund(state, order) {
-  // A slipped programme lets every customer walk away: the preorder deposit
-  // or the launch price back in full (data/preorders.js).
-  if ((order?.preorder || order?.launch) && Number(order?.delayedWeeks) > 0) {
-    return { allowed: true, refund: order?.totalPrice ?? 0, forfeit: 0, reason: null, lines: state?.productionLinesWorld === true, delayed: true };
-  }
-  // A preorder on time: the deposit is the commitment, and it is forfeited.
-  if (order?.preorder) {
-    return { allowed: true, refund: 0, forfeit: order?.totalPrice ?? 0, reason: null, lines: state?.productionLinesWorld === true, preorder: true };
-  }
   if (state?.productionLinesWorld === true && !order?.used) {
     const t = cancelTerms(order, absoluteWeek(state.year, state.week));
     return { allowed: t.allowed, refund: t.refund, forfeit: t.forfeit, reason: t.reason, lines: true };
@@ -2312,10 +2310,7 @@ function reducer(state, action) {
       // of order: a not-yet-flying type on launch-customer terms.
       const eraDenial = orderDenial(state, action.typeId);
       const isLaunch  = eraDenial?.code === 'launch_only';
-      // Preorder (data/preorders.js): an announced type, any quantity, a
-      // deposit now and the balance on delivery.
-      const isPreorder = eraDenial?.code === 'preorder';
-      if (eraDenial && !isLaunch && !isPreorder) return state;
+      if (eraDenial && !isLaunch) return state;
       // Production-line worlds: deliveries come off a shared line, one slot per
       // airline per week, priced by how early (data/productionLines.js).
       const linesWorld = state.productionLinesWorld === true;
@@ -2334,14 +2329,6 @@ function reducer(state, action) {
         if (quantity < eraDenial.minQty) {
           return refuse(`A launch order for the ${type.name} is at least ${eraDenial.minQty} frame${eraDenial.minQty === 1 ? '' : 's'}.`);
         }
-      }
-      if (isPreorder && action.ownershipType !== 'owned') {
-        return {
-          ...state,
-          pendingToasts: [...(state.pendingToasts ?? []),
-            { type: 'warning', icon: '📝', title: 'Preorder not placed',
-              message: `Preorders are bought outright — no lessor carries the ${type.name} before it has flown.` }],
-        };
       }
 
       const currentAbsWeek = absoluteWeek(state.year, state.week);
@@ -2450,16 +2437,10 @@ function reducer(state, action) {
         const unitCostAt = (disc) =>
           Math.round(Math.round(eraPurchasePrice(type) * (1 - disc)) * enginePriceMod)
           + wingtipCost + seatFittingFee + wifiFitCost;
-        const discountFor = (q) => isLaunch ? launchOrderDiscount(state, type, q)
-          : isPreorder ? preorderOrderDiscount(state, type, q) : orderDiscount(q);
-        // A preorder pays the deposit on the airframe now; fittings as usual.
-        const upfrontAt = (disc) => isPreorder
-          ? preorderDeposit(Math.round(Math.round(eraPurchasePrice(type) * (1 - disc)) * enginePriceMod) + wingtipCost)
-            + seatFittingFee + wifiFitCost
-          : unitCostAt(disc);
+        const discountFor = (q) => isLaunch ? launchOrderDiscount(state, type, q) : orderDiscount(q);
         while (orderQty > 0) {
           orderDisc = discountFor(orderQty);
-          if (cashBalance >= upfrontAt(orderDisc) * orderQty) break;
+          if (cashBalance >= unitCostAt(orderDisc) * orderQty) break;
           orderQty--;
         }
         // A launch order is all-or-nothing: trimming it below the minimum would
@@ -2478,7 +2459,7 @@ function reducer(state, action) {
           // Was a silent `return state`. With the client's optimistic apply that
           // read as the game eating your order and your money — the single most
           // common "it stole my deposit" report. Name the number instead.
-          const need = upfrontAt(discountFor(1));
+          const need = unitCostAt(orderDiscount(1));
           return {
             ...state,
             pendingToasts: [
@@ -2486,9 +2467,7 @@ function reducer(state, action) {
               {
                 type: 'warning', icon: '💸',
                 title: 'Not enough cash',
-                message: isPreorder
-                  ? `The deposit on a ${type.name} preorder is ${formatMoney(need)}. You have ${formatMoney(cashBalance)}.`
-                  : `A ${type.name} costs ${formatMoney(need)} to buy outright. You have ${formatMoney(cashBalance)}.`,
+                message: `A ${type.name} costs ${formatMoney(need)} to buy outright. You have ${formatMoney(cashBalance)}.`,
               },
             ],
           };
@@ -2501,24 +2480,22 @@ function reducer(state, action) {
       // at list. A PRIORITY order starts at the build time, may use the line's
       // held-back share, comes one week tighter, and pays per week saved.
       // Launch frames start at entry into service and are never priority.
-      // Preorder frames start at the (possibly slipped) first delivery, never priority.
-      const wantsPriority = linesWorld && !isLaunch && !isPreorder && action.priority === true;
+      const wantsPriority = linesWorld && !isLaunch && action.priority === true;
       const allocator = linesWorld ? makeSlotAllocator(state, type, {
         absWeek:   currentAbsWeek,
-        fromWeek:  (isLaunch || isPreorder || wantsPriority) ? null : (Number.isFinite(action.slotFromWeek) ? action.slotFromWeek : null),
-        notBefore: isLaunch ? eraDenial.eisAbs : isPreorder ? eraDenial.firstDeliveryAbs : null,
+        fromWeek:  (isLaunch || wantsPriority) ? null : (Number.isFinite(action.slotFromWeek) ? action.slotFromWeek : null),
+        notBefore: isLaunch ? eraDenial.eisAbs : null,
         priority:  wantsPriority,
       }) : null;
 
       for (let i = 0; i < orderQty; i++) {
         // Starter Fleet frames skip the queue entirely (and so take no slot). A
         // launch frame never does: the aeroplane does not exist yet.
-        const instantFrame = isMultiplayerWorld && starterUsed < STARTER_DELIVERY_CAP && !isLaunch && !isPreorder;
+        const instantFrame = isMultiplayerWorld && starterUsed < STARTER_DELIVERY_CAP && !isLaunch;
         const slot = (allocator && !instantFrame) ? allocator.peekSlot() : null;
-        const queuedWeek = allocator ? null : deliverySchedule(type, runningPending, currentAbsWeek, 1)[0];
         const deliverAbsWeek = allocator
           ? (instantFrame ? currentAbsWeek : slot.week)
-          : (isPreorder ? Math.max(queuedWeek, eraDenial.firstDeliveryAbs) : queuedWeek);
+          : deliverySchedule(type, runningPending, currentAbsWeek, 1)[0];
         // Priority fee on list price: added to an owned frame's price (so it is
         // part of the cost basis), or charged as a one-off fee on a lease.
         const premiumPct  = slot?.premiumPct ?? 0;
@@ -2550,11 +2527,7 @@ function reducer(state, action) {
         // Owned aircraft pay the connectivity capex up front; leased ones have
         // already had it amortised into unitWeeklyLease above, so charging it
         // here as well would bill for the same antenna twice.
-        // Preorder: the deposit on the airframe now, the balance at delivery.
-        const unitDeposit     = isPreorder ? preorderDeposit(unitTotalPrice) : 0;
-        const unitUpfrontCost = (action.ownershipType === 'owned'
-                                  ? (isPreorder ? unitDeposit : unitTotalPrice) + wifiFitCost
-                                  : leaseDeposit + slotPremium)
+        const unitUpfrontCost = (action.ownershipType === 'owned' ? unitTotalPrice + wifiFitCost : leaseDeposit + slotPremium)
                               + seatFittingFee;
         if (cashBalance < unitUpfrontCost) { cashShortfallAt = unitUpfrontCost; break; }
         if (allocator && !instantFrame) allocator.take();
@@ -2578,11 +2551,7 @@ function reducer(state, action) {
           maintMod,
           config:        action.config ?? null,  // cabin layout chosen at order time
           deliverAbsWeek,
-          // A preorder's totalPrice is what has been PAID (the deposit) — the
-          // figure every refund, the balance sheet and the delivered tail's
-          // cost basis read — and balanceDue is the rest, paid on delivery.
-          totalPrice:    isPreorder ? unitDeposit : unitTotalPrice,
-          ...(isPreorder ? { preorder: true, balanceDue: unitTotalPrice - unitDeposit } : {}),
+          totalPrice:    unitTotalPrice,
           leaseDeposit:  leaseDeposit,
           weeklyLease:   action.ownershipType === 'lease' ? unitWeeklyLease : 0,
           leaseTermWeeks: chosenLeaseTermWeeks,   // player-chosen term (undefined for owned)
@@ -2700,17 +2669,6 @@ function reducer(state, action) {
         });
       }
 
-      if (isPreorder && newOrders.length > 0) {
-        const paid = newOrders.reduce((sum, o) => sum + (o.totalPrice ?? 0), 0);
-        const due  = newOrders.reduce((sum, o) => sum + (o.balanceDue ?? 0), 0);
-        instantToasts.push({
-          type: 'success', icon: '📝',
-          title: `Preordered: ${newOrders.length} ${type.name}${newOrders.length === 1 ? '' : 's'}`,
-          message: `${formatMoney(paid)} deposit paid${orderDisc > 0 ? ` at ${Math.round(orderDisc * 100)}% off list` : ''}. ${formatMoney(due)} falls due as the frames arrive, from ${absWeekLabel(state, Math.min(...newOrders.map(o => o.deliverAbsWeek)))}. Keep the cash for it: a balance you cannot pay cancels that frame and its deposit is lost.`,
-          duration: 10000,
-        });
-      }
-
       if (isLaunch && newOrders.length > 0) {
         instantToasts.push({
           type: 'success', icon: '🚀',
@@ -2825,22 +2783,6 @@ function reducer(state, action) {
       // Production-line worlds: the slot goes back to the line, and the forfeit
       // grows as the slot nears (data/productionLines.js cancelTerms). Launch
       // frames are firm. Used-market buys keep the classic terms.
-      // Preorders, and launch frames on a slipped programme: their own terms
-      // (orderCancelRefund) — deposit forfeited on time, everything back late.
-      if (order.preorder || (order.launch && Number(order.delayedWeeks) > 0)) {
-        const t = orderCancelRefund(state, order);
-        return {
-          ...state,
-          cash:          state.cash + t.refund,
-          pendingOrders: (state.pendingOrders ?? []).filter(o => o.id !== orderId),
-          pendingToasts: [...(state.pendingToasts ?? []), {
-            type: 'info', icon: '↩', title: `Order cancelled: ${order.name}`,
-            message: t.delayed
-              ? `The programme slipped, so ${formatMoney(t.refund)} comes back in full.`
-              : `The ${formatMoney(t.forfeit)} preorder deposit is forfeited.`,
-          }],
-        };
-      }
       if (state.productionLinesWorld === true && !order.used) {
         const terms = cancelTerms(order, absoluteWeek(state.year, state.week));
         if (!terms.allowed) {
@@ -7493,73 +7435,9 @@ function reducer(state, action) {
           }
         }
       }
-      // Programme slips (data/preorders.js): the server stamps the world's
-      // revealed table on every tick. A slip new to this airline pushes every
-      // frame of that type it has on order back by the slip, once, and lets
-      // it cancel them for a full refund. No table on the action (solo, the
-      // golden masters) = nothing changes and no key is written.
-      const delaysStamped   = action.programmeDelays && typeof action.programmeDelays === 'object';
-      const freshDelays     = delaysStamped ? newlyDelayed(state.programmeDelays ?? {}, action.programmeDelays) : [];
-      let pendingAfterSlips = state.pendingOrders ?? [];
-      for (const typeId of freshDelays) {
-        const slip = programmeDelayWeeks({ programmeDelays: action.programmeDelays }, typeId);
-        const slipType = getAircraftType(typeId);
-        let moved = 0;
-        pendingAfterSlips = pendingAfterSlips.map(o => {
-          if (o.typeId !== typeId || o.used) return o;
-          moved++;
-          return { ...o, deliverAbsWeek: o.deliverAbsWeek + slip, delayedWeeks: (Number(o.delayedWeeks) || 0) + slip };
-        });
-        const months = Math.round(slip * 12 / 52);
-        newToasts.push({
-          type: moved > 0 ? 'warning' : 'info', icon: '⏳',
-          title: `Programme delay: ${slipType?.name ?? typeId}`,
-          message: `${slipType?.manufacturer ?? 'The manufacturer'} has pushed the ${slipType?.name ?? typeId} back about ${months} months.`
-            + (moved > 0
-              ? ` Your ${moved} frame${moved === 1 ? '' : 's'} on order move back with it. You can cancel them for a full refund.`
-              : ' Preorders now deliver later, and anyone who cancels gets a full refund.'),
-          duration: 12000,
-        });
-      }
-      const allPending      = pendingAfterSlips;
-      const dueNow          = allPending.filter(o => o.deliverAbsWeek <= newAbsWeek);
+      const allPending      = state.pendingOrders ?? [];
+      const toDeliver       = allPending.filter(o => o.deliverAbsWeek <= newAbsWeek);
       const remainingOrders = allPending.filter(o => o.deliverAbsWeek >  newAbsWeek);
-      // Preorder balances fall due as the frames arrive, in delivery order. One
-      // the airline cannot pay cancels that frame; the deposit is lost.
-      let preorderCash = cashAfterDividend + objectiveCashBonus + mandateCashBonus;
-      const toDeliver = [];
-      for (const o of dueNow) {
-        const due = o.preorder ? Math.max(0, Math.round(Number(o.balanceDue) || 0)) : 0;
-        if (due <= 0) { toDeliver.push(o); continue; }
-        if (preorderCash >= due) {
-          preorderCash -= due;
-          toDeliver.push({ ...o, totalPrice: (o.totalPrice ?? 0) + due, balanceDue: 0 });
-          continue;
-        }
-        newToasts.push({
-          type: 'error', icon: '💸',
-          title: `Preorder lost: ${o.name}`,
-          message: `The ${formatMoney(due)} balance on this ${getAircraftType(o.typeId)?.name ?? 'aircraft'} fell due and the airline had ${formatMoney(Math.max(0, preorderCash))}. The frame is cancelled and the ${formatMoney(o.totalPrice ?? 0)} deposit is lost.`,
-          duration: 12000,
-        });
-      }
-      // A balance due next week that the bank could not cover today: say so now.
-      {
-        let ahead = preorderCash;
-        for (const o of remainingOrders) {
-          if (!o.preorder || o.deliverAbsWeek !== newAbsWeek + 1) continue;
-          const due = Math.max(0, Math.round(Number(o.balanceDue) || 0));
-          ahead -= due;
-          if (due > 0 && ahead < 0) {
-            newToasts.push({
-              type: 'warning', icon: '💸',
-              title: `Balance due next week: ${o.name}`,
-              message: `${formatMoney(due)} falls due when it arrives next week, more than the airline has spare. Without it the frame is cancelled and the deposit lost.`,
-              duration: 10000,
-            });
-          }
-        }
-      }
 
       // Build delivered aircraft, accumulating used tail numbers to avoid collisions
       const deliveredAircraft = [];
@@ -7838,8 +7716,7 @@ function reducer(state, action) {
 
       return {
         ...state,
-        cash:              preorderCash,
-        ...(delaysStamped ? { programmeDelays: action.programmeDelays } : {}),
+        cash:              cashAfterDividend + objectiveCashBonus + mandateCashBonus,
         ...(boardMandate ? { boardMandate } : {}),
         ...(boardMandateHistory ? { boardMandateHistory } : {}),
         week:              newWeek,
@@ -8840,7 +8717,7 @@ function renewOne(state, newId, toasts) {
     return setTag(state, { ...tag, waiting: wait });
   }
 
-  let s = state;
+  let s = endCoversFor(state, old.id);
   const moving = [...(s.routes ?? []), ...(s.cargoRoutes ?? [])].filter(r => r.aircraftId === old.id).length;
   if (moving > 0) {
     const c = transferCompatibility(s, old.id, nu.id);
@@ -8850,11 +8727,25 @@ function renewOne(state, newId, toasts) {
         title: `${nu.name} can't take over from ${oldName}`,
         message: `${c.reason}. ${nu.name} is idle and ${oldName} keeps its routes — move them by hand from the Fleet page.`,
       });
-      return setTag(s, null);
+      return setTag(state, null);   // covers left as they were
     }
     s = reducer(s, { type: 'TRANSFER_ROUTES', fromAircraftId: old.id, toAircraftId: nu.id });
   }
   s = setTag(s, null);
+
+  // A reserve's job is its standby slot, not routes (it flies none of its own),
+  // so the replacement takes over the slot: same base, through SET_RESERVE's own
+  // checks (idle, in service, base still a hub). The old tail leaves standby so
+  // a kept spare does not double the readiness bill (Discord: "replacing
+  // reserve aircraft doesn't place them on reserve").
+  let standby = null;
+  if (old.reserveBase && moving === 0) {
+    const stationed = reducer(s, { type: 'SET_RESERVE', aircraftId: nu.id, baseCode: old.reserveBase });
+    if (stationed.fleet?.find(a => a.id === nu.id)?.reserveBase === old.reserveBase) {
+      s = reducer(stationed, { type: 'CLEAR_RESERVE', aircraftId: old.id });
+      standby = old.reserveBase;
+    }
+  }
 
   let fate;
   if (tag.disposal === 'keep') {
@@ -8894,7 +8785,9 @@ function renewOne(state, newId, toasts) {
     title: `${nu.name} replaces ${oldName}`,
     message: (moving > 0
       ? `${nu.name} takes over ${moving} route${moving !== 1 ? 's' : ''} from ${oldName}. `
-      : `${oldName} was flying nothing, so there were no routes to move. `) + fate,
+      : standby
+        ? `${nu.name} takes over ${oldName}'s reserve slot at ${standby}. `
+        : `${oldName} was flying nothing, so there were no routes to move. `) + fate,
   });
   return s;
 }

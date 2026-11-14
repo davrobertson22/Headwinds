@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 // A styled confirm/alert dialog replacing native window.confirm / window.alert
 // (which render as raw OS chrome and read as unfinished). Promise-based so call
@@ -64,7 +65,7 @@ export function ConfirmProvider({ children }) {
     <ConfirmCtx.Provider value={api}>
       {children}
       {req && (
-        <div style={S.overlay} onClick={(e) => { if (e.target === e.currentTarget) close(false); }}>
+        <div style={S.overlay} {...backdropDismiss(() => close(false))}>
           <div style={S.modal} role="alertdialog" aria-modal="true">
             <h2 style={S.title}>{req.title}</h2>
             {req.body && <p style={S.body}>{req.body}</p>}

@@ -774,5 +774,32 @@ test('RoutePlanner\'s Est. Market Share is the projection\'s share (hub + cateri
     `planner shows ${m[1]}% of the pair; the projection it forecasts from says ${expected}%`);
 });
 
+// Discord (2026-11-14): the planner's share card printed a human rival as
+// "encroach:human:cmuhjem…" and quoted You 90% + rival 48%. Human rivals enter
+// the fight as `encroach:<competitorId>`, which a bare id lookup never matched,
+// and the rows were divided by the unscaled pool while cheap fares stimulate
+// traffic past it.
+test('RoutePlanner names a human rival and its share rows never sum past 100%', () => {
+  const key = [T1, T3].sort().join('-');
+  // Demand model v4: a combined timetable and cheap fares grow the pool past
+  // its unscaled size, which is what pushed the rows past 100%.
+  const st = baseSave({ awareness: 60, reputation: 60, demandModel: 4, worldDemandMult: 0.05 });
+  st.competitors = [RIVAL, { id: 'human:abc123', name: 'Kat Air', human: true, tier: 'legacy',
+    homeHub: T3, baseQualityScore: 70,
+    routes: { [key]: { frequency: 21, seats: 180, priceMultiplier: 0.55, aircraftType: jet.id } } }];
+  st.humanRivals = { [key]: [{ competitorId: 'human:abc123', name: 'Kat Air', tier: 'legacy',
+    qualityScore: 70, frequency: 21, seatsPerFlight: 180, priceMultiplier: 0.55 }] };
+  const html = renderPlanner(st, { origin: T1, dest: T3, typeId: jet.id, frequency: 80 });
+  const i = html.indexOf('Est. Market Share');
+  assert.ok(i > 0, 'share panel rendered');
+  const panel = html.slice(i, i + 2000);
+  assert.ok(!panel.includes('encroach:'), 'the raw offer id leaked into the panel');
+  assert.ok(panel.includes('Kat Air'), 'the human rival is named');
+  const pcts = [...panel.matchAll(/<\/span><span[^>]*>(\d+)%<\/span>/g)].map(m => Number(m[1]));
+  assert.ok(pcts.length >= 2, `expected a row per airline, got ${pcts}`);
+  const sum = pcts.reduce((a, b) => a + b, 0);
+  assert.ok(sum <= 101, `share rows sum to ${sum}% (${pcts.join(' + ')})`);
+});
+
 console.log(`\n${'─'.repeat(60)}\n  ${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);

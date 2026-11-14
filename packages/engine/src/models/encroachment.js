@@ -139,6 +139,8 @@ export function buildEncroachmentOffer(spec, market) {
 
   return {
     airlineId:         `encroach:${spec.competitorId}`,
+    // Display only — the share fight never reads it. Screens label the row by it.
+    ...(spec.name ? { name: spec.name } : {}),
     origin:            market.origin,
     destination:       market.destination,
     economyPrice,

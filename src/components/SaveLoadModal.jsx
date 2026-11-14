@@ -4,6 +4,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { formatMoney, weekToGameDate } from '../utils/simulation.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { SaveIcon, FolderOpenIcon, CloseIcon } from './Icons.jsx';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 const SLOT_PREFIX = 'bbae_slot_';
 const NUM_SLOTS = 3;
@@ -164,7 +165,7 @@ export default function SaveLoadModal({ mode, onClose }) {
   }
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal">
         <div className="saveload-header">
           <h2 className="saveload-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

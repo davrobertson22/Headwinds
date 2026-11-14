@@ -43,6 +43,7 @@ import { applyRivalsPatch, worldHalfOf } from './rivalDelta.js';
 import { createScreenMemory, SCREEN_ONLY_ACTIONS, withScreenFields } from './screenMemory.js';
 import { borrowProjection, hasBorrowedProjection, settleBorrowed, inheritBorrowed } from './ownProjection.js';
 import '../../../src/index.css';
+import { backdropDismiss } from '../../../src/utils/backdropDismiss.js';
 
 // ── Statistics backfill ─────────────────────────────────────────────────────
 // Finance ▸ Statistics is driven by state.statsHistory, a compact per-week KPI
@@ -896,7 +897,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
           containing block for position:fixed. */}
       {profileAccountId && createPortal(
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) setProfileAccountId(null); }}
+          {...backdropDismiss(() => setProfileAccountId(null))}
           style={{ position: 'fixed', inset: 0, zIndex: 1000,
                    background: 'rgba(0,0,0,.55)', overflowY: 'auto',
                    padding: '32px 16px' }}
@@ -917,7 +918,7 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
           for position:fixed. */}
       {showCeremony && createPortal(
         <div
-          onClick={(e) => { if (e.target === e.currentTarget) setShowCeremony(false); }}
+          {...backdropDismiss(() => setShowCeremony(false))}
           style={{ position: 'fixed', inset: 0, zIndex: 1000,
                    background: 'rgba(0,0,0,.55)', overflowY: 'auto',
                    padding: '32px 16px' }}

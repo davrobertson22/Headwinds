@@ -28,6 +28,7 @@ import {
   FILTER_MIN_ROWS, EMPTY_TAIL_FILTER, EMPTY_ORDER_FILTER,
   filterTailRows, filterOrders, tailFilterActive, orderFilterActive, typeOptions,
 } from '../utils/renewalFilters.js';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 const nowAbsOf = (state) => absoluteWeek(state.year, state.week);
 
@@ -473,7 +474,7 @@ export function ReplacementPickerModal({ order, onClose }) {
   }
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal" style={{ width: 'min(560px, 94vw)' }}>
         <div className="saveload-header">
           <h2 style={{ margin: 0, fontSize: 17 }}>Replace an aircraft</h2>
@@ -552,7 +553,7 @@ export function RenewalNotice({ aircraft }) {
         <div>
           <strong style={{ color: 'var(--yellow)' }}>⏳ Waiting to replace {target?.name ?? aircraft.replacing.name}.</strong>{' '}
           {aircraft.replacing.waiting ? `${aircraft.replacing.waiting[0].toUpperCase()}${aircraft.replacing.waiting.slice(1)}. ` : ''}
-          It takes over the routes the week it is free.{' '}
+          It takes over the routes as soon as those routes come home.{' '}
           <button className="btn btn-ghost" style={{ fontSize: 11, padding: '2px 8px' }}
             onClick={() => dispatch({ type: 'CLEAR_FLEET_REPLACEMENT', aircraftId: aircraft.id })}>
             Stop waiting
@@ -643,7 +644,7 @@ export function BulkReplaceModal({ aircraftIds, onClose, onOrdered }) {
   }
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal" style={{ width: 'min(720px, 96vw)' }}>
         <div className="saveload-header">
           <h2 style={{ margin: 0, fontSize: 17 }}>Replace {tails.length} aircraft</h2>

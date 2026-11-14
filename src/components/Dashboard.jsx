@@ -32,6 +32,7 @@ import {
   BASIS_CONTRIBUTION, BASIS_FULL, loadProfitBasis, saveProfitBasis,
 } from '../utils/routeEconomics.js';
 import { AlertIcon, DotIcon, TrendDownIcon, PackageIcon, CloseIcon, BulbIcon } from './Icons.jsx';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 // localStorage key for which dashboard cards the player has collapsed.
 const DASH_COLLAPSE_KEY = 'hw_dash_collapsed_v1';
@@ -1182,7 +1183,7 @@ function EventDetailModal({ event, onClose }) {
   const typeLabel = EVENT_TYPE_LABELS[event.type] ?? event.type;
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal" style={{ width: 'min(460px, 94vw)' }}>
         <div className="saveload-header" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>

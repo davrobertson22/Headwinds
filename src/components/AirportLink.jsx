@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import AirportDetail from './AirportDetail.jsx';
 import { Glyph } from './Icons.jsx';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 /**
  * Renders an airport code (or custom children) as a clickable element that
@@ -46,7 +47,7 @@ export default function AirportLink({ code, children, style }) {
             display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
             padding: '24px 16px', overflowY: 'auto',
           }}
-          onClick={e => { if (e.target === e.currentTarget) setOpen(false); }}
+          {...backdropDismiss(() => setOpen(false))}
         >
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',

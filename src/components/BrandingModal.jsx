@@ -8,6 +8,7 @@ import { CloseIcon } from './Icons.jsx';
 import LiveryEditor from './LiveryEditor.jsx';
 import TailPicker from './TailPicker.jsx';
 import { liveryFor, isLiveryShaped } from '../data/livery.js';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 // In-game branding editor: change the airline name, logo (preset or uploaded
 // image) and accent colour without starting a new game — and, on the Livery
@@ -72,7 +73,7 @@ export default function BrandingModal({ onClose, initialTab = 'identity' }) {
   }
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal" style={{ maxWidth: tab === 'livery' ? 640 : 560 }}>
         <div className="saveload-header">
           <h2 className="saveload-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

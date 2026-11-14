@@ -5,6 +5,7 @@ import {
   alertCategory, shouldShowToast, loadAlertPrefs, saveAlertPrefs, normalizeAlertPrefs,
   hiddenCount, openAlertSettings, isEditableTarget,
 } from '../utils/alertPrefs.js';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -173,7 +174,7 @@ export function AlertSettings({ prefs, setPrefs, recent = [], onClose }) {
   return (
     <div
       className="alert-settings-overlay"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss(() => onClose())}
       style={{
         position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,.55)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
