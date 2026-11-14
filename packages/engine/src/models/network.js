@@ -199,6 +199,14 @@ const CONNECTION_LOAD_FACTOR    = 0.85;
 
 // ─── Graph construction ───────────────────────────────────────────────────────
 
+// The sorted O&D key, `[a, b].sort().join('-')`, without building the array:
+// the same string for every pair of strings (sort() and < both compare UTF-16
+// code units). Anything else goes the old way, so an odd value keys as it did.
+export function odKeyOf(a, b) {
+  if (typeof a === 'string' && typeof b === 'string') return a < b ? `${a}-${b}` : `${b}-${a}`;
+  return [a, b].sort().join('-');
+}
+
 /**
  * Expand player routes into individual flown LEGS so the network model sees every
  * airport a multi-stop (tag) flight touches — not just its endpoints.
@@ -623,6 +631,116 @@ export function buildCannibalizationMap(connections) {
   }
 
   return factors;
+}
+
+/**
+ * What a weekly tick actually reads of the connection set, worked out in ONE
+ * pass: the cannibalisation factors (from every connection a nonstop competes
+ * with) and the connections a partner flies a leg of (partner O&D revenue and
+ * partner health decay). The rest of what buildAllConnections makes, a
+ * connection over two of the player's own legs with no nonstop beside it, was
+ * built and dropped: on a 4,000-route airline 200,000 objects a projection, plus
+ * two sorted-and-joined keys each for the 150,000 the map does read
+ * (2026-11-12).
+ *
+ * The same enumeration in the same order with the same arithmetic as
+ * buildAllConnections → findConnectionsAtHub → buildCannibalizationMap, so the
+ * factors are the same numbers to the last bit (each leg's factor is a running
+ * product, and the products are taken in the order the old pass took them).
+ * tools/network-tick-fused-test.mjs holds the two paths to equality.
+ *
+ * @returns {{ partnerConnections: Connection[], cannibalizationMap: object }}
+ */
+export function connectionsForTick(playerRoutes, competitors, partnershipMap, seatsByRouteKey = {}, legacy = false) {
+  const legRoutes       = expandRoutesToLegs(playerRoutes);
+  const partnerRoutes   = buildPartnerRoutes(competitors, Object.fromEntries(partnershipMap));
+  const directRouteKeys = buildDirectRouteIndex(legRoutes, seatsByRouteKey);
+  const adjacencyIndex  = buildAdjacencyIndex(legRoutes, partnerRoutes);
+
+  const hubCandidates = new Set();
+  for (const r of legRoutes) {
+    hubCandidates.add(r.origin);
+    hubCandidates.add(r.destination);
+  }
+
+  const partnerConnections = [];
+  const factors = {};
+  for (const hub of hubCandidates) {
+    const touchingRoutes = adjacencyIndex.get(hub) ?? [];
+    const inbound  = touchingRoutes.filter(r => r.destination === hub);
+    const outbound = touchingRoutes.filter(r => r.origin      === hub);
+    for (const leg1 of inbound) {
+      const origin  = leg1.origin;
+      const leg1Key = odKeyOf(origin, hub);
+      for (const leg2 of outbound) {
+        const dest = leg2.destination;
+        if (origin === dest) continue;
+        if (leg1.tagParentId && leg1.tagParentId === leg2.tagParentId) continue;
+        const ownLeg1 = leg1.owner === 'player', ownLeg2 = leg2.owner === 'player';
+        if (!ownLeg1 && !ownLeg2) continue;
+        const ownMetal     = ownLeg1 && ownLeg2;
+        const directKey    = odKeyOf(origin, dest);
+        const directExists = directRouteKeys.has(directKey);
+        // Nothing reads an own-metal connection no nonstop competes with.
+        if (ownMetal && !directExists) continue;
+
+        const minFreqOD = Math.min(leg1.weeklyFrequency ?? 0, leg2.weeklyFrequency ?? 0);
+        const odDemand = Math.round(baseCityPairDemand(origin, dest) * marketDevForOD(origin, dest, minFreqOD));
+        if (!odDemand || odDemand < MIN_OD_DEMAND_PAX) continue;
+
+        let partnershipType;
+        if (ownMetal) {
+          partnershipType = 'ownMetal';
+        } else {
+          const partnerLeg = leg1.owner === 'partner' ? leg1 : leg2;
+          partnershipType  = partnerLeg.partnershipType ?? 'interline';
+        }
+
+        const totalPrice   = leg1.price + leg2.price;
+        const refP         = referencePrice(origin, dest) ?? totalPrice;
+        const minFreq      = Math.min(leg1.weeklyFrequency, leg2.weeklyFrequency);
+        const penalty        = CONNECTION_PENALTY[partnershipType] ?? CONNECTION_PENALTY.interline;
+        const connectUtil    = -penalty
+                               - PRICE_WEIGHT * (totalPrice / Math.max(refP, 1))
+                               + FREQ_WEIGHT  * Math.log1p(minFreq);
+
+        let connectionShare = 1.0;
+        let directShare     = 0.0;
+        if (directExists) {
+          ({ connectionShare, directShare } = connectionShareVsDirect(
+            connectUtil, directRouteKeys.get?.(directKey), refP, odDemand, legacy));
+          const leg2Key = odKeyOf(hub, dest);
+          factors[leg1Key] = (factors[leg1Key] ?? 1.0) * connectionShare;
+          factors[leg2Key] = (factors[leg2Key] ?? 1.0) * connectionShare;
+        }
+        if (ownMetal) continue;
+        partnerConnections.push({
+          hub,
+          legOneOrigin:    origin,
+          legOneDest:      hub,
+          legTwoDest:      dest,
+          leg1Owner:       leg1.owner,
+          leg2Owner:       leg2.owner,
+          leg1PartnerId:   leg1.partnerId,
+          leg2PartnerId:   leg2.partnerId,
+          partnershipType,
+          leg1Freq:        leg1.weeklyFrequency,
+          leg2Freq:        leg2.weeklyFrequency,
+          leg1Price:       leg1.price,
+          leg2Price:       leg2.price,
+          totalPrice,
+          odDemand,
+          directExists,
+          connectionShare,
+          directShare,
+        });
+      }
+    }
+  }
+  for (const key of Object.keys(factors)) {
+    factors[key] = Math.max(0.20, factors[key]);
+  }
+  return { partnerConnections, cannibalizationMap: factors };
 }
 
 /**
@@ -2108,15 +2226,17 @@ export function runNetworkTick(state) {
   // model can pit the player's connections against real head-to-head competition.
   const competitorRouteIndex = buildCompetitorRouteIndex(competitors);
 
-  const connections        = buildAllConnections(routes, competitors, partnershipMap, seatsByRouteKey, legacyWorld);
-  const cannibalizationMap = buildCannibalizationMap(connections);
-  const partnerODRevenue   = computePartnerODRevenue(connections, {
+  // Only the connections something below reads (connectionsForTick). The whole
+  // set is still there on request, as `connections`, for a caller that wants it.
+  const { partnerConnections, cannibalizationMap } =
+    connectionsForTick(routes, competitors, partnershipMap, seatsByRouteKey, legacyWorld);
+  const partnerODRevenue   = computePartnerODRevenue(partnerConnections, {
     gameDate,
     competitorRouteIndex,
     demandMultFor,
     rivalIndex,
   });
-  const partnerHealthDecay = computePartnerHealthDecay(connections, partnershipMap);
+  const partnerHealthDecay = computePartnerHealthDecay(partnerConnections, partnershipMap);
 
   // Hub competition: contested connecting pools at player-designated airports.
   const hubContestMap = buildHubContestMap(competitors, routeCountByAirport, hubs);
@@ -2139,12 +2259,18 @@ export function runNetworkTick(state) {
     timetable,
   });
 
-  return {
-    connections,
+  const out = {
     cannibalizationMap,
     partnerODRevenue,
     partnerHealthDecay,
     hubContestMap,
     ownMetalOD,
   };
+  // Built when read, never by the tick itself (nothing in it reads the set).
+  let all = null;
+  Object.defineProperty(out, 'connections', {
+    enumerable: false,
+    get: () => (all ??= buildAllConnections(routes, competitors, partnershipMap, seatsByRouteKey, legacyWorld)),
+  });
+  return out;
 }

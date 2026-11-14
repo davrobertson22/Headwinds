@@ -6,13 +6,19 @@
 // screen to render asks projectWeek for it. At 4,000 routes that is 0.7 s of
 // frozen page per click.
 //
-// Now an edit that leaves the airline the same shape goes on screen borrowing
-// the projection already there; the worker projects it and the same state is
-// put up again with its own (GamePlayScreen's reprojection runner).
+// Now an edit goes on screen borrowing the projection already there; the
+// worker projects it and the same state is put up again with its own
+// (GamePlayScreen's reprojection runner). Since 2026-11-12 that includes the
+// edits that change the airline's shape — a route opened or closed, an aircraft
+// bought or sold — which borrow it with the rows for whatever is gone taken out:
+// those were the last clicks still freezing the page (0.7–1.2 s on 4,900 tails).
 //
 // What this holds:
-//   • only same-shape edits borrow, and only when there is something to borrow
-//   • a borrowed projection is the previous one, untouched, and is marked
+//   • an edit borrows only within the same week, and only when there is
+//     something to borrow
+//   • a same-shape edit borrows the previous projection untouched; a shape
+//     change borrows it trimmed to the routes and aircraft it has now, and the
+//     real screens render it; either way the state is marked
 //   • what crosses to the worker for an edit is the keys the edit changed
 //   • the worker's answer for "held state + those keys" is the main thread's
 //     answer for the new state, exactly — including a key that disappeared
@@ -135,14 +141,112 @@ await test('a same-shape edit goes up with the previous projection, untouched, a
   // …and it IS stale: the honest answer differs, which is why it must be replaced.
   assert.notEqual(onMain(structuredClone(next)).netCash, before.netCash);
 });
-await test('an edit that changes the shape, or changes nothing, borrows nothing', () => {
+await test('an edit that changes nothing, or lands in another week, borrows nothing', () => {
   need();
   const s = airline(); onMain(s);
-  const closed = gameReducer(s, { type: 'CLOSE_ROUTE', routeId: 'r2' });
-  assert.equal(own.borrowProjection(s, closed), false);
-  assert.equal(own.hasBorrowedProjection(closed), false);
   assert.equal(own.borrowProjection(s, s), false);
   assert.equal(own.borrowProjection(null, s), false);
+  const later = { ...gameReducer(s, { type: 'CLOSE_ROUTE', routeId: 'r2' }), week: s.week + 1 };
+  assert.equal(own.borrowProjection(s, later), false);
+  assert.equal(own.hasBorrowedProjection(later), false);
+});
+
+section('borrowing across a change of shape');
+
+const idsOf = (rows, f) => (rows ?? []).map(r => r[f]);
+await test('closing a route borrows the previous projection without that route', () => {
+  need();
+  const s = airline(); const before = onMain(s);
+  const closed = gameReducer(s, { type: 'CLOSE_ROUTE', routeId: 'r2' });
+  assert.equal(own.sameShape(s, closed), false, 'precondition: a change of shape');
+  assert.equal(own.borrowProjection(s, closed), true, 'a shape change borrows too now');
+  assert.equal(own.hasBorrowedProjection(closed), true);
+  const p = projectWeek(hydrateState(closed));
+  assert.notEqual(p, before, 'a trimmed copy, not the previous object');
+  assert.ok(!idsOf(p.report.routeResults, 'routeId').includes('r2'), 'no row for the closed route');
+  assert.ok(!('r2' in p.revById));
+  assert.deepEqual(idsOf(p.report.routeResults, 'routeId'), idsOf(before.report.routeResults, 'routeId').filter(id => id !== 'r2'));
+  // Every other row is the previous one, untouched, and so are the totals.
+  const prevRows = new Map(before.report.routeResults.map(r => [r.routeId, r]));
+  for (const r of p.report.routeResults) assert.equal(r, prevRows.get(r.routeId));
+  assert.equal(p.netCash, before.netCash);
+  assert.equal(p.report.totalRevenue, before.report.totalRevenue);
+  assert.equal(p.report.fleetCosts, before.report.fleetCosts, 'the fleet did not change, so neither does its table');
+  assert.ok(idsOf(before.report.routeResults, 'routeId').includes('r2'), 'the previous projection itself is left alone');
+});
+await test('buying an aircraft and opening a route on it borrow too; the new tail and route have no row yet', () => {
+  need();
+  const s = airline(); const before = onMain(s);
+  const bought = gameReducer(s, { type: 'BUY_AIRCRAFT', typeId: 'a320neo', idSeed: 'seedbuy' });
+  assert.equal(bought.fleet.length, s.fleet.length + 1, 'precondition: BUY_AIRCRAFT added a tail');
+  assert.equal(own.borrowProjection(s, bought), true);
+  const tail = bought.fleet.at(-1);
+  const pb = projectWeek(hydrateState(bought));
+  assert.ok(!idsOf(pb.report.fleetCosts, 'aircraftId').includes(tail.id));
+  assert.equal(pb.report.routeResults, before.report.routeResults, 'nothing was removed, so the rows are shared');
+  const opened = gameReducer(bought, { type: 'ADD_ROUTE', aircraftId: tail.id, origin: 'SIN', destination: 'CGK', weeklyFrequency: 7, idSeed: 'seedroute' });
+  assert.equal(opened.routes.length, bought.routes.length + 1, 'precondition: ADD_ROUTE opened the route');
+  assert.equal(own.borrowProjection(bought, opened), true);
+  const po = projectWeek(hydrateState(opened));
+  const added = opened.routes.find(r => !bought.routes.some(b => b.id === r.id));
+  assert.ok(!idsOf(po.report.routeResults, 'routeId').includes(added.id), 'no row until the worker answers');
+});
+await test('selling an aircraft drops its fleet-cost row and its routes', () => {
+  need();
+  const s = airline(); const before = onMain(s);
+  const sold = gameReducer(s, { type: 'SELL_AIRCRAFT', aircraftId: 'p3' });
+  assert.ok(!sold.fleet.some(a => a.id === 'p3'), 'precondition: SELL_AIRCRAFT sold the tail');
+  assert.equal(own.borrowProjection(s, sold), true);
+  const p = projectWeek(hydrateState(sold));
+  assert.ok(idsOf(before.report.fleetCosts, 'aircraftId').includes('p3'));
+  assert.ok(!idsOf(p.report.fleetCosts, 'aircraftId').includes('p3'));
+  const liveRoutes = new Set(sold.routes.map(r => r.id));
+  assert.ok(idsOf(p.report.routeResults, 'routeId').every(id => liveRoutes.has(id)), 'no row for a route the sale closed');
+  for (const id of Object.keys(p.report.mroFactorsByAircraft ?? {})) assert.ok(sold.fleet.some(a => a.id === id));
+});
+await test('projectionForShape keeps a projection with nothing to remove as it is, and leaves out fields it never had', () => {
+  need();
+  const s = airline(); const before = onMain(s);
+  const same = own.projectionForShape(before, s);
+  assert.equal(same.report.routeResults, before.report.routeResults);
+  assert.equal(same.revById, before.revById);
+  const bare = own.projectionForShape({ netCash: 1, report: { routeResults: [{ routeId: 'r1' }, { routeId: 'gone' }] } }, s);
+  assert.deepEqual(Object.keys(bare.report), ['routeResults']);
+  assert.deepEqual(bare.report.routeResults, [{ routeId: 'r1' }]);
+  assert.equal(own.projectionForShape(null, s), null);
+});
+
+const React = (await import('react')).default;
+const { renderToString } = await import('react-dom/server');
+const { RemoteGameProvider } = await import('../src/store/GameContext.jsx');
+const { ConfirmProvider } = await import('../src/components/ConfirmModal.jsx');
+const screens = {
+  Dashboard: (await import('../src/components/Dashboard.jsx')).default,
+  Routes:    (await import('../src/components/Routes.jsx')).default,
+  Fleet:     (await import('../src/components/Fleet.jsx')).default,
+  Finance:   (await import('../src/components/Finance.jsx')).default,
+};
+const render = (state, C) => renderToString(React.createElement(RemoteGameProvider, { state, dispatch() {}, remoteApi: null },
+  React.createElement(ConfirmProvider, null, React.createElement(C)))).replace(/<!-- -->/g, '');
+await test('the real screens render a borrowed shape change without projecting it', () => {
+  need();
+  const s = airline(); onMain(s);
+  const bought = gameReducer(s, { type: 'BUY_AIRCRAFT', typeId: 'a320neo', idSeed: 'seedbuy2' });
+  own.borrowProjection(s, bought);
+  const opened = gameReducer(bought, { type: 'ADD_ROUTE', aircraftId: bought.fleet.at(-1).id, origin: 'SIN', destination: 'CGK', weeklyFrequency: 7, idSeed: 'seedroute2' });
+  own.borrowProjection(bought, opened);
+  const closed = gameReducer(opened, { type: 'CLOSE_ROUTE', routeId: 'r5' });
+  assert.equal(own.borrowProjection(opened, closed), true);
+  const borrowedProj = projectWeek(hydrateState(closed));
+  for (const [name, C] of Object.entries(screens)) {
+    const html = render(closed, C);
+    assert.ok(html.length > 1000, `${name} rendered next to nothing`);
+  }
+  assert.equal(projectWeek(hydrateState(closed)), borrowedProj, 'no screen worked out a projection of its own');
+  const routes = render(closed, screens.Routes);
+  assert.match(routes, /CGK/, 'the new route is listed');
+  assert.doesNotMatch(routes, />NaN</, 'no NaN where a row is missing');
+  assert.doesNotMatch(render(closed, screens.Dashboard), />NaN</);
 });
 await test('a state that already has its own projection keeps it', () => {
   need();

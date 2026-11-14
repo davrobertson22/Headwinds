@@ -6,7 +6,7 @@ import {
 import { isOutOfService, effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import { productSpaceMul, productWeeklyCost, productFittingCost } from '../data/seatProducts.js';
 import {
-  resolveBaseFor, networkAirportsIndex, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
+  resolveBaseFor, mroBaseCandidates, networkAirportsIndex, mroFactorsFor, familyContractOffsets, totalBaseWeeklyCost,
   contractOffsetSavings, isBaseOpen, RESERVE_AT_BASE_READINESS_DISCOUNT,
 } from '../data/mroBase.js';
 import { RESERVE_READINESS_MULT, RESERVE_NO_DISPATCH_IF_CHECK_WITHIN_WEEKS, reserveParkingFee, isReserve } from '../data/reserve.js';
@@ -6258,8 +6258,9 @@ export function weeklyTick(state) {
   // covers. Slots gate the discrete JOBS (checks, AOG repairs) in the reducer.
   const mroFactorsByAircraft = {};
   const mroNetwork = networkAirportsIndex(rawRoutes, cargoRoutes);
+  const mroCandidates = mroBaseCandidates(mroBases, absWeek);
   for (const aircraft of fleet) {
-    const resolved = resolveBaseFor(aircraft, mroBases, rawRoutes, cargoRoutes, absWeek, mroNetwork);
+    const resolved = resolveBaseFor(aircraft, mroBases, rawRoutes, cargoRoutes, absWeek, mroNetwork, mroCandidates);
     if (resolved) mroFactorsByAircraft[aircraft.id] = mroFactorsFor(resolved);
   }
   const mroContractOffsets = familyContractOffsets(mroBases, absWeek);

@@ -42,8 +42,13 @@ export function calcPositioning(state) {
   let qualitySum     = 0;
   let routeCount     = 0;
 
+  // The fleet indexed once (first record per id, as find returned): searching
+  // it for every route was ten million comparisons a week on a 4,000-route,
+  // 4,900-tail airline (2026-11-12).
+  const byId = new Map();
+  for (const a of fleet ?? []) if (a && !byId.has(a.id)) byId.set(a.id, a);
   for (const route of routes) {
-    const aircraft = (fleet ?? []).find(a => a.id === route.aircraftId);
+    const aircraft = byId.get(route.aircraftId);
     const type     = aircraft ? getAircraftType(aircraft.typeId) : null;
     if (!aircraft || !type) continue;
 

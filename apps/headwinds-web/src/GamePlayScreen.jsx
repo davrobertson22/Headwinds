@@ -618,10 +618,11 @@ export default function GamePlayScreen({ worldId, token, me = null }) {
     // rejected" — the server applies the same test, this is the client's guard
     // for a tab talking to an older build.
     const errBefore = stateRef.current?.error ?? null;
-    // Optimistic: same reducer, instant UI. When the edit leaves the airline
-    // the same shape, the new state borrows the projection already on screen
-    // and the worker works out its own (the reprojection runner above) — so
-    // the click is answered without running the engine's week on this thread.
+    // Optimistic: same reducer, instant UI. The new state borrows the
+    // projection already on screen (trimmed to its routes and aircraft when the
+    // edit opened, closed, bought or sold something: ownProjection.js) and the
+    // worker works out its own (the reprojection runner above) — so the click
+    // is answered without running the engine's week on this thread.
     setState((s) => {
       const next = gameReducer(s, seeded);
       if (next !== s && offThreadReady()) borrowProjection(s, next);

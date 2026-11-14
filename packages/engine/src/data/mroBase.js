@@ -361,20 +361,65 @@ export function aircraftNetworkAirports(aircraftId, routes = [], cargoRoutes = [
  * Returns null when nothing qualifies. Does NOT consider slot availability —
  * that is the caller's job, because slots are allocated across the whole fleet.
  */
-export function resolveBaseFor(aircraft, bases = {}, routes = [], cargoRoutes = [], absWeek = 0, networkIndex = null) {
+const EMPTY_AIRPORTS = new Set();
+/**
+ * The open bases, worked out once for a pass over a whole fleet: in the order
+ * Object.entries gives them (which decides ties), each with this week's
+ * efficiency, and indexed by airport. Hand it to resolveBaseFor as
+ * `candidates` and each tail looks up only the airports it flies, instead of
+ * walking every base (78 bases × 4,900 tails on one live airline, 2026-11-12).
+ */
+export function mroBaseCandidates(bases = {}, absWeek = 0) {
+  const list = [];
+  const byCode = new Map();
+  for (const [code, base] of Object.entries(bases ?? {})) {
+    if (!isBaseOpen(base)) continue;
+    byCode.set(code, list.length);
+    list.push({ code, base, eff: baseEfficiency(base, absWeek) });
+  }
+  return { list, byCode, bases, absWeek };
+}
+
+export function resolveBaseFor(aircraft, bases = {}, routes = [], cargoRoutes = [], absWeek = 0, networkIndex = null, candidates = null) {
   const familyId = aircraftFamily(aircraft?.typeId);
   if (!familyId) return null;
+  if (candidates && candidates.bases === bases && candidates.absWeek === absWeek && networkIndex) {
+    // The walk below, over just the bases this tail can reach: the same
+    // comparisons in the same (table) order, so the same base wins every tie.
+    const hits = [];
+    for (const code of networkIndex.get(aircraft?.id) ?? EMPTY_AIRPORTS) {
+      const i = candidates.byCode.get(code);
+      if (i !== undefined) hits.push(i);
+    }
+    if (aircraft?.reserveBase) {
+      const i = candidates.byCode.get(aircraft.reserveBase);
+      if (i !== undefined && !hits.includes(i)) hits.push(i);
+    }
+    if (hits.length > 1) hits.sort((x, y) => x - y);
+    let best = null;
+    for (const i of hits) {
+      const { code, base, eff } = candidates.list[i];
+      if (!baseCovers(base, familyId)) continue;
+      if (!best || base.level > best.level || (base.level === best.level && eff > best.eff)) {
+        best = { code, base, level: base.level, eff };
+      }
+    }
+    if (best) best.def = mroLevelDef(best.level);
+    return best;
+  }
   // `networkIndex` (networkAirportsIndex of the same two tables) is the same
-  // set, read instead of rebuilt; copied because the reserve base is added.
+  // set, read instead of rebuilt. Read, not copied: the tick resolves every
+  // tail, and copying each one's airports to add one code was a tenth of a
+  // second a week on a 4,900-tail airline (2026-11-12).
   const network = networkIndex
-    ? new Set(networkIndex.get(aircraft?.id) ?? [])
+    ? (networkIndex.get(aircraft?.id) ?? EMPTY_AIRPORTS)
     : aircraftNetworkAirports(aircraft?.id, routes, cargoRoutes);
   // A stationed reserve flies nothing, so its own base airport counts as network.
-  if (aircraft?.reserveBase) network.add(aircraft.reserveBase);
+  const reserveBase = aircraft?.reserveBase || null;
 
   let best = null;
   for (const [code, base] of Object.entries(bases ?? {})) {
-    if (!network.has(code)) continue;
+    if (!network.has(code) && code !== reserveBase) continue;
     if (!isBaseOpen(base)) continue;
     if (!baseCovers(base, familyId)) continue;
     const eff = baseEfficiency(base, absWeek);

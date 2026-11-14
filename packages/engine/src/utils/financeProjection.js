@@ -107,6 +107,12 @@ export function primeProjectWeek(state, result) {
   return true;
 }
 
+/** The projection already worked out for this state object, or undefined. Never computes one. */
+export function peekProjectWeek(state) {
+  if (!state || typeof state !== 'object') return undefined;
+  return _projectionCache.get(state);
+}
+
 /**
  * Give `to` the projection already worked out for `from`, when the two states
  * differ only in things the projection never reads (which pop-ups are queued,
