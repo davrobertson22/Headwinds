@@ -33,7 +33,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          emptyEquity, migratedEquity, sharesOf, svpsOf,
          freeFloatOf, executionPrice, capitalGainsTax, repriceForShareChange,
          priceImpact, poolLiquidityDiscount,
-         CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
+         CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare, buybackRefusal,
          founderSaleProceeds, offeringPoolLimit, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
 import { prepareWeek } from './utils/tickPrep.js';
@@ -8440,36 +8440,19 @@ function reducer(state, action) {
     case 'BUY_BACK_SHARES': {
       // action: { shares } — retire stock from the float. Cash leaves, the share
       // count falls, and per-share value rises if you bought below fair value.
+      // Every refusal reason (listing, founder block, annual allowance, what the
+      // pool still holds, price, cash cover) lives in buybackRefusal, which the
+      // server's 409 and the Stocks card read too.
       const C = CAPITAL;
       const equity = state.equity ?? emptyEquity();
-      if (!equity.isPublic) return state;
+      const n = Math.floor(Number(action.shares));
+      if (buybackRefusal(state, n)) return state;
 
       const shares = sharesOf(state);
-      const n = Math.floor(Number(action.shares));
-      if (!(n > 0)) return state;
-
-      // You can only retire shares that are actually in public hands.
-      const founder = Number(equity.founderShares ?? 0);
-      if (shares - n < founder) return state;
-
       const boughtThisYear = Number(equity.buybacksThisYear ?? 0);
-      if (boughtThisYear + n > C.BUYBACK_MAX_PCT_PER_YEAR * shares) return state;
-
-      // The pool must actually hold the stock you are retiring.
-      const mk = state.worldMarket;
-      if (mk && Number.isFinite(mk.selfSharesHeld) && n > mk.selfSharesHeld) return state;
-
       const basePrice = state.sharePrice ?? ((state.marketCap ?? 0) / shares);
       const price     = basePrice * (1 + C.BUYBACK_PREMIUM);
-      if (!(price > 0)) return state;
       const cost      = Math.round(n * price);
-
-      // Never buy back into insolvency: keep a few weeks of operating cover.
-      const recentCost = (state.financialHistory ?? []).slice(-4);
-      const weeklyCost = recentCost.length
-        ? recentCost.reduce((sum, h) => sum + (h.totalCost ?? 0), 0) / recentCost.length
-        : 0;
-      if (state.cash - cost < weeklyCost * C.MIN_CASH_WEEKS_COVER) return state;
 
       // Retiring stock is the mirror image of issuing it: cash leaves the cap at
       // the same instant the shares leave the count, so the price moves only by

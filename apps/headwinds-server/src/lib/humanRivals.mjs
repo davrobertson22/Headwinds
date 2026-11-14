@@ -37,7 +37,7 @@ import { netProfitOf } from '@tailwinds/engine/utils/standings.js';
 import { MARKET_DEV_VERSION } from '@tailwinds/engine/models/marketDev.js';
 import { isGateScarcity, buildGateMarketViews } from './gateService.mjs';
 import { logoHashOf, logoPathOf, tailPathOf } from './logoColumn.mjs';
-import { poolSharesFor, poolSummary } from './marketService.mjs';
+import { poolSharesFor, poolSummary, poolKeyOf } from './marketService.mjs';
 import { joinReport } from './reportColumn.mjs';
 
 // ── Rival-facing identity, per GENERATION ────────────────────────────────────
@@ -1354,13 +1354,22 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     const market = await prisma.worldMarket.findUnique({ where: { worldId } }).catch(() => null);
     const summary = poolSummary(market);
     const seen = new Set();
+    // Each airline's OWN inventory in the pool, keyed by DB id — what a buyback
+    // can retire. Read off the competitor entries other views carry (they hold
+    // the share count and founder block the free-float fallback needs), so the
+    // Stocks card can cap a buyback BEFORE the click instead of reverting it.
+    const selfShares = new Map();
     for (const view of views.values()) {
-      view.stockPool = summary;
       for (const c of view.competitors) {
         if (!c || seen.has(c.id)) continue;
         seen.add(c.id);
         c.poolShares = poolSharesFor(market, c.id, c);
+        selfShares.set(poolKeyOf(c.id), c.poolShares);
       }
+    }
+    for (const [id, view] of views) {
+      const own = selfShares.get(poolKeyOf(id));
+      view.stockPool = summary && Number.isFinite(own) ? { ...summary, selfShares: own } : summary;
     }
     return views;
   };

@@ -16,6 +16,7 @@ import {
   STOCK_MARKET, sharesOf, svpsOf, freeFloatOf,
   CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare,
   repriceForShareChange, founderSaleProceeds, ipoOffering, offeringPoolLimit,
+  buybackLimits, buybackRefusal,
 } from '../utils/market.js';
 import AirlineLogo from './AirlineLogo.jsx';
 import { OgChip, DevChip } from './Competition.jsx';
@@ -404,13 +405,16 @@ export function CapitalActions({ state, dispatch, remote = false }) {
   const issueAfter    = issueFilled > 0 ? priceAfter(issueFilled, issueProceeds) : price;
 
   // ── Buyback ───────────────────────────────────────────────────────────────
-  const boughtThisYear = Number(equity.buybacksThisYear ?? 0);
-  const buyAllowance = Math.max(0, Math.floor(C.BUYBACK_MAX_PCT_PER_YEAR * shares) - boughtThisYear);
+  // The same limits and refusal reasons the reducer and the server apply
+  // (buybackLimits / buybackRefusal), so the card never offers a size that
+  // reverts — including what the pool still holds when other players own the
+  // rest of the float (Discord, Kat the Fox 2026-11-12).
+  const buyLimits = buybackLimits(state);
+  const buyAllowance = buyLimits.allowance;
   const buyN = Math.max(0, Math.floor(Number(buybackStr) || 0));
-  const buyCost = Math.round(buyN * price * (1 + C.BUYBACK_PREMIUM));
-  const weeklyCost = history.slice(-4).length
-    ? history.slice(-4).reduce((sum, h) => sum + (h.totalCost ?? 0), 0) / history.slice(-4).length : 0;
-  const coverNeeded = Math.round(weeklyCost * C.MIN_CASH_WEEKS_COVER);
+  const buyCost = Math.round(buyN * buyLimits.price);
+  const coverNeeded = Math.round(buyLimits.cover);
+  const buyRefusal = buyN > 0 ? buybackRefusal(state, buyN) : null;
 
   // ── Dividend ──────────────────────────────────────────────────────────────
   const payoutPct = Math.max(0, Math.min(100, Math.round(Number(payoutStr) || 0)));
@@ -593,7 +597,12 @@ export function CapitalActions({ state, dispatch, remote = false }) {
           <div style={box}>
             <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>Buy back stock</div>
             <CapitalRow label="Allowance left this year" value={buyAllowance.toLocaleString()} />
+            {buyLimits.pool != null && (
+              <CapitalRow label="On the market" hint="your shares other investors don't hold"
+                          value={buyLimits.pool.toLocaleString()} />
+            )}
             <CapitalRow label="Cash cover to keep" hint={`${C.MIN_CASH_WEEKS_COVER} weeks of costs`} value={formatMoney(coverNeeded)} />
+            <CapitalRow label="Most you can retire now" value={buyLimits.max.toLocaleString()} />
             <input
               style={input} inputMode="numeric" placeholder="Shares to retire"
               value={buybackStr} onChange={(e) => setBuyStr(e.target.value.replace(/[^0-9]/g, ''))}
@@ -602,12 +611,14 @@ export function CapitalActions({ state, dispatch, remote = false }) {
             <button
               className="btn"
               style={{ width: '100%', marginTop: 6, fontSize: 12 }}
-              disabled={!(buyN > 0) || buyN > buyAllowance || buyN > float
-                        || (state.cash - buyCost) < coverNeeded}
+              disabled={!(buyN > 0) || buyRefusal != null}
               onClick={() => { dispatch({ type: 'BUY_BACK_SHARES', shares: buyN }); setBuyStr(''); }}
             >
               Retire shares
             </button>
+            {buyRefusal && (
+              <div style={{ fontSize: 11, color: 'var(--warning, #d97706)', marginTop: 6 }}>{buyRefusal.message}</div>
+            )}
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6 }}>
               Accretive when your stock is cheap or your cash is sitting idle.
             </div>

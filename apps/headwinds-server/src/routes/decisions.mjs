@@ -35,7 +35,7 @@ import { wantsLeanReply, leanReply } from '../lib/leanReply.mjs';
 import { rivalsReply } from '../lib/rivalDelta.mjs';
 import { stopwatch, shouldLogPerf, decisionPerfLine } from '../lib/perfLog.mjs';
 import { Prisma } from '@prisma/client';
-import { sharesOf, svpsScore, STOCK_MARKET } from '@tailwinds/engine/utils/market.js';
+import { sharesOf, svpsScore, STOCK_MARKET, buybackRefusal } from '@tailwinds/engine/utils/market.js';
 import {
   ensureWorldMarket, marketViewFor, applyTradeToPoolTx, applyCapitalActionToPoolTx,
   MarketError,
@@ -527,8 +527,12 @@ export default async function decisionRoutes(fastify) {
     // rather than leaving the player with a button that appears to do nothing.
     if (isCapitalAction && market && next === injected) {
       const view = injected.worldMarket;
-      if (type === 'BUY_BACK_SHARES' && view && view.selfSharesHeld <= 0) {
-        throw httpError(409, 'None of your shares are in public hands to buy back.');
+      // Every buyback refusal says why — the engine and this message read the
+      // same rules (buybackRefusal). This used to explain only an EMPTY pool, so
+      // a buyback larger than what the pool still held reverted in silence.
+      if (type === 'BUY_BACK_SHARES') {
+        const why = buybackRefusal(injected, Math.floor(Number(guarded.shares)));
+        if (why) throw httpError(409, why.message);
       }
       // An issue is partially subscribed when the pool is short, so reaching here
       // means it could not even fund the minimum ticket — say so with the number.

@@ -2147,6 +2147,77 @@ export const CAPITAL = {
   DIVIDEND_TRAILING_WEEKS:   13,
 };
 
+// ── Buyback limits (one rule set) ───────────────────────────────────────────
+// A buyback is refused for any of five reasons, and the reducer, the server's
+// refusal message and the Stocks card all read them from here — so the card
+// never offers a size the engine will turn down, and a refusal always says why.
+// Before this the card capped only at the annual allowance and the free float,
+// the server explained only an EMPTY pool, and a buyback larger than what the
+// pool still held (other players own the rest) reverted with no word at all
+// (Discord, Kat the Fox 2026-11-12: Caldoren, Timely Takeoff — 10,000 of a
+// 1.47M float left on the market).
+
+/** The pool's inventory of the acting airline's own stock, or null if unknown.
+ *  Server decisions carry `worldMarket.selfSharesHeld`; the client reads the
+ *  rival overlay's `stockPool.selfShares`. Single-player has neither. */
+export function buybackPoolShares(state) {
+  const mk = state?.worldMarket;
+  if (mk && Number.isFinite(Number(mk.selfSharesHeld))) return Math.max(0, Number(mk.selfSharesHeld));
+  const sp = state?.stockPool;
+  if (sp && Number.isFinite(Number(sp.selfShares))) return Math.max(0, Number(sp.selfShares));
+  return null;
+}
+
+/** Everything that bounds a buyback, and the largest one that would execute. */
+export function buybackLimits(state) {
+  const C = CAPITAL;
+  const equity = state?.equity ?? {};
+  const shares = sharesOf(state);
+  const founder = Number(equity.founderShares ?? 0);
+  const float = Math.max(0, shares - founder);
+  const allowance = Math.max(0, Math.floor(C.BUYBACK_MAX_PCT_PER_YEAR * shares - Number(equity.buybacksThisYear ?? 0)));
+  const pool = buybackPoolShares(state);
+  const basePrice = state?.sharePrice ?? ((state?.marketCap ?? 0) / shares);
+  const price = basePrice * (1 + C.BUYBACK_PREMIUM);
+  const recent = (state?.financialHistory ?? []).slice(-4);
+  const weeklyCost = recent.length ? recent.reduce((sum, h) => sum + (h.totalCost ?? 0), 0) / recent.length : 0;
+  const cover = weeklyCost * C.MIN_CASH_WEEKS_COVER;
+  let affordable = price > 0 ? Math.max(0, Math.floor(((state?.cash ?? 0) - cover) / price)) : 0;
+  // Rounding: the cost is Math.round(n * price), so step down until it fits.
+  while (affordable > 0 && (state?.cash ?? 0) - Math.round(affordable * price) < cover) affordable--;
+  const max = Math.max(0, Math.min(float, allowance, pool ?? Infinity, affordable));
+  return { shares, float, allowance, pool, price, cover, affordable, max };
+}
+
+/** Why a buyback of `n` shares would be refused ({ code, message }), or null. */
+export function buybackRefusal(state, n) {
+  const fmt = (x) => Math.max(0, Math.floor(x)).toLocaleString('en-US');
+  if (!(state?.equity ?? {}).isPublic) {
+    return { code: 'private', message: 'List the airline before buying back stock.' };
+  }
+  if (!(n > 0)) return { code: 'size', message: 'Enter how many shares to retire.' };
+  const L = buybackLimits(state);
+  if (n > L.float) {
+    return { code: 'founder', message: `Only ${fmt(L.float)} of your shares are in public hands — the rest is your founder block.` };
+  }
+  if (n > L.allowance) {
+    return { code: 'allowance', message: `You can retire ${fmt(L.allowance)} more shares this year (${Math.round(CAPITAL.BUYBACK_MAX_PCT_PER_YEAR * 100)}% of your share count a year).` };
+  }
+  if (L.pool != null && n > L.pool) {
+    return {
+      code: 'pool',
+      message: L.pool <= 0
+        ? 'None of your shares are on the market right now — other investors hold your whole public float.'
+        : `Only ${fmt(L.pool)} of your shares are on the market right now — other investors hold the other ${fmt(L.float - L.pool)}.`,
+    };
+  }
+  if (!(L.price > 0)) return { code: 'price', message: 'Your stock has no price to buy back at yet.' };
+  if ((state.cash ?? 0) - Math.round(n * L.price) < L.cover) {
+    return { code: 'cover', message: `That would leave less than ${CAPITAL.MIN_CASH_WEEKS_COVER} weeks of costs in the bank — the most you can retire is ${fmt(L.affordable)}.` };
+  }
+  return null;
+}
+
 /**
  * IPO discount for an airline: worst case for a raw startup, best for a carrier
  * with a year of trading behind it.
