@@ -53,7 +53,6 @@ import {
   canConvertToFreighter, conversionFor, conversionRefusal, startConversion, completeConversion, inShopLabel,
 } from '../../packages/engine/src/data/conversions.js';
 import { airframeNAV, effectiveMaintAgeWeeks } from '../../packages/engine/src/data/maintenance.js';
-import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -288,7 +287,7 @@ function TransferRoutesModal({ aircraft, onClose }) {
   }
 
   return (
-    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
+    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="saveload-modal" style={{ width: 'min(520px, 94vw)' }}>
         <div className="saveload-header">
           <h2 style={{ margin: 0, fontSize: 17 }}>Transfer Routes</h2>
@@ -357,7 +356,7 @@ function ExtendLeaseModal({ aircraft, onClose }) {
     ? `${w / 52} yr` : `${w} wk`;
 
   return (
-    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
+    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="saveload-modal" style={{ width: 'min(460px, 94vw)' }}>
         <div className="saveload-header">
           <h2 style={{ margin: 0, fontSize: 17 }}>Extend Lease</h2>
