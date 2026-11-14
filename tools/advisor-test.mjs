@@ -133,6 +133,56 @@ test('full but losing money: flagged at near-zero fares, quiet once priced', () 
   assert.ok(!ids(airlineAdvice(BASE, report)).includes('full-but-losing'));
 });
 
+// Discord (Kat the Fox, 2026-11-14): "your new advisor 'routes are full but
+// operates at a loss' doesn't line up with actual numbers in the data". The
+// report's per-route trueProfit charges the WHOLE aircraft's lease and
+// maintenance to every route the tail flies; the Routes screen splits it by
+// block hours. The Advisor and the briefing must use the split.
+// Verified failing on HEAD (210bdcb): see the run noted in claude/advisor-fixed-cost-split.md.
+function twoRoutesOneTail() {
+  let s = airline({ dests: ['ORD'], idle: 0, freq: 7 });
+  const ac = s.fleet[0].id;
+  s = gameReducer(s, { type: 'ADD_GATE', airportCode: 'BOS' });
+  s = gameReducer(s, { type: 'ADD_ROUTE', aircraftId: ac, origin: 'JFK', destination: 'BOS', weeklyFrequency: 7 });
+  assert.equal(s.routes.length, 2);
+  assert.ok(s.routes.every(r => r.aircraftId === ac));
+  return { ...s, routes: s.routes.map(r => ({ ...r, weeksOpen: 30 })) };
+}
+const tailReport = (s, contribution) => fakeReport(s, () => ({
+  loadFactor: 0.9, configuredSeatsOneWay: 100, revenue: 3e5, profit: contribution,
+  weeklyLeaseCost: 90_000, weeklyMaintCost: 10_000, trueProfit: contribution - 100_000,
+}));
+
+test('a tail on two routes pays its lease once: not "full but losing" when the plane makes money', () => {
+  const s = twoRoutesOneTail();
+  const report = tailReport(s, 80_000);              // 160k contribution vs a 100k aircraft
+  const pairs = pairRollup(s, report);
+  assert.equal(Math.round(pairs.reduce((t, p) => t + p.trueProfit, 0)), 60_000);
+  assert.ok(pairs.every(p => p.trueProfit > 0), pairs.map(p => `${p.label} ${p.trueProfit}`).join(', '));
+  assert.ok(!ids(airlineAdvice(s, report)).includes('full-but-losing'));
+});
+
+test('…and still flagged when the split cost really does sink it', () => {
+  const s = twoRoutesOneTail();
+  const report = tailReport(s, 30_000);              // 60k contribution vs a 100k aircraft
+  const hit = airlineAdvice(s, report).find(a => a.id === 'full-but-losing');
+  assert.ok(hit);
+  // The aircraft is charged once: the loss can never exceed 100k - 60k... per
+  // route it is the share less 30k, so at most -70k on the longer route. On
+  // HEAD both routes carried the whole 100k: -140k.
+  assert.ok(hit.impact < 0 && hit.impact > -100_000, `impact ${hit.impact}`);
+});
+
+test('briefing / API route profit splits the aircraft the same way', () => {
+  const s = twoRoutesOneTail();
+  const report = tailReport(s, 80_000);
+  const rows = routeRows(s, report);
+  assert.equal(rows.reduce((t, r) => t + r.profit, 0), 60_000);
+  assert.ok(rows.every(r => r.profit > 0));
+  assert.ok(!/-\$|\(\$/.test(airlineBriefing(s, { report }).split('## Passenger routes')[1].split('##')[0]),
+    'no route in the briefing table should read as a loss');
+});
+
 test('empty and losing: flagged for a mature route', () => {
   const s = { ...BASE, routes: BASE.routes.map(r => ({ ...r, weeksOpen: 30 })) };
   const report = fakeReport(s, () => ({ loadFactor: 0.3, trueProfit: -20000, revenue: 1e4, configuredSeatsOneWay: 100 }));

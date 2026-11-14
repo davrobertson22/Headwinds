@@ -37,6 +37,7 @@ import {
   routeStops, aircraftUtilization, committedRoutesByAircraft, maxWeeklyBlockHoursFor, currentGameDate, formatMoney,
 } from '../utils/simulation.js';
 import { slotUsageFor, slotCapAt } from '../reducer.mjs';
+import { allocateFixedCosts } from './routeFixedCost.js';
 
 export const ADVISOR_VERSION = 1;
 
@@ -69,6 +70,29 @@ export function routeLabel(route) {
 }
 
 /**
+ * Each route's share of its aircraft's lease + maintenance, split by block
+ * hours exactly as the Routes screen, Dashboard and Finance split it
+ * (models/routeFixedCost.js). The report's own `trueProfit` charges the WHOLE
+ * aircraft to every route it flies, so a tail on two routes was charged twice
+ * and the Advisor called profitable routes "full but losing money".
+ */
+export function fixedSharesFor(state, byId) {
+  const resultsById = {};
+  for (const [id, rr] of byId) resultsById[id] = rr;
+  return allocateFixedCosts({
+    routes: state?.routes ?? [], cargoRoutes: state?.cargoRoutes ?? [],
+    fleet: state?.fleet ?? [], resultsById,
+  });
+}
+
+/** Fully-loaded weekly profit: the route's contribution less its share of the aircraft. */
+export function fullyLoadedProfit(rr, fixedShare) {
+  if (!rr) return 0;
+  if (rr.profit == null || fixedShare == null) return rr.trueProfit ?? rr.profit ?? 0;
+  return rr.profit - fixedShare;
+}
+
+/**
  * One row per city pair (or tag rotation): the routes flying it, summed.
  * Several tails on one pair are one market to the player, and the Routes tab
  * groups them the same way — listing JFK–LHR three times would read as three
@@ -77,6 +101,7 @@ export function routeLabel(route) {
 export function pairRollup(state, report) {
   const byId = new Map();
   for (const rr of report?.routeResults ?? []) byId.set(rr.routeId, rr);
+  const fixedByRoute = fixedSharesFor(state, byId);
   const groups = new Map();
   for (const route of state?.routes ?? []) {
     if (isCoverRoute(route)) continue;
@@ -90,7 +115,7 @@ export function pairRollup(state, report) {
     g.routeIds.push(route.id);
     g.revenue    += rr.revenue ?? 0;
     g.profit     += rr.profit ?? 0;
-    g.trueProfit += rr.trueProfit ?? rr.profit ?? 0;
+    g.trueProfit += fullyLoadedProfit(rr, fixedByRoute[route.id]);
     const seats = rr.configuredSeatsOneWay ?? 0;
     g.seats += seats;
     g.pax   += seats > 0 ? (rr.loadFactor ?? 0) * seats : (rr.passengers ?? 0);

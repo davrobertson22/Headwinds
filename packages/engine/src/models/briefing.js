@@ -30,7 +30,7 @@ import {
   formatMoney, formatGameDate, routeStops, aircraftUtilization, maxWeeklyBlockHoursFor, currentGameDate,
 } from '../utils/simulation.js';
 import { slotUsageFor, slotCapAt } from '../reducer.mjs';
-import { airlineAdvice, routeLabel } from './advisor.js';
+import { airlineAdvice, routeLabel, fixedSharesFor, fullyLoadedProfit } from './advisor.js';
 
 export const BRIEFING_VERSION = 2;   // v2 (2026-11-09): "Where things are in the game" + exact screen paths on advice
 export const BRIEFING_LIMITS = { topRoutes: 12, bottomRoutes: 8, cargoRoutes: 8, airports: 12, types: 20, history: 8 };
@@ -137,9 +137,11 @@ export function airlineBriefing(state, opts = {}) {
 
   // ── Routes ────────────────────────────────────────────────────────────────
   const byId = new Map((report?.routeResults ?? []).map(rr => [rr.routeId, rr]));
+  const fixedByRoute = fixedSharesFor(state, byId);
+  const fullOf = (r, rr) => fullyLoadedProfit(rr, fixedByRoute[r.id]);
   const fleetById = new Map(fleet.map(a => [a.id, a]));
   const rows = routes.map(r => ({ r, rr: byId.get(r.id) ?? null }));
-  const flown = rows.filter(x => x.rr).sort((a, b) => (b.rr.trueProfit ?? b.rr.profit ?? 0) - (a.rr.trueProfit ?? a.rr.profit ?? 0));
+  const flown = rows.filter(x => x.rr).sort((a, b) => fullOf(b.r, b.rr) - fullOf(a.r, a.rr));
   const routeRow = ({ r, rr }) => {
     const ac = fleetById.get(r.aircraftId);
     const single = (r.stops?.length ?? 2) <= 2;
@@ -153,7 +155,7 @@ export function airlineBriefing(state, opts = {}) {
       r.weeklyFrequency ?? 0,
       pct(rr.loadFactor),
       money(rr.revenue),
-      money(rr.trueProfit ?? rr.profit),
+      money(fullOf(r, rr)),
       fare != null ? `${money(fare)}${ref ? ` (ref ${money(ref)})` : ''}` : '—',
       rr.competitorCount ?? 0,
       r.weeksOpen ?? '—',
@@ -251,6 +253,7 @@ export function airlineBriefing(state, opts = {}) {
 /** One row per passenger route, with its report figures (null when it did not fly). */
 export function routeRows(state, report = state?.lastReport ?? null) {
   const byId = new Map((report?.routeResults ?? []).map(rr => [rr.routeId, rr]));
+  const fixedByRoute = fixedSharesFor(state, byId);
   const fleetById = new Map((state?.fleet ?? []).map(a => [a.id, a]));
   return (state?.routes ?? []).filter(r => !isCoverRoute(r)).map(r => {
     const rr = byId.get(r.id) ?? null;
@@ -272,7 +275,7 @@ export function routeRows(state, report = state?.lastReport ?? null) {
       loadFactor: rr ? +(rr.loadFactor ?? 0).toFixed(3) : null,
       passengersOneWay: rr?.passengers ?? null,
       revenue: rr ? Math.round(rr.revenue ?? 0) : null,
-      profit: rr ? Math.round(rr.trueProfit ?? rr.profit ?? 0) : null,
+      profit: rr ? Math.round(fullyLoadedProfit(rr, fixedByRoute[r.id])) : null,
       soldOut: rr ? rr.capacityCapped === true : null,
       rivals: rr?.competitorCount ?? null,
     };
