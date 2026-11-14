@@ -138,6 +138,36 @@ await test('end to end: a grounded rival takes no more of your revenue than a ri
   assert.equal(rev(vsGrounded), rev(solo), `a grounded rival's seats still took ${rev(solo) - rev(vsGrounded)} of revenue`);
 });
 
+// Crew pipeline: a tail the tick parks for want of pilots or cabin crew
+// (unstaffedAircraftIds — "No crew" on the Fleet page) earns nothing for its
+// owner, so its seats must not take a share from anyone else either (Discord,
+// Nilla_wafer 2026-11-13: "Not enough crew but airline still flying").
+const bobCrew = (headcount) => ({
+  ...bob,
+  state: {
+    ...bob.state,
+    crewPipeline: true,
+    labor: Object.fromEntries(Object.entries(bob.state.labor ?? {}).map(([g, v]) => [g,
+      { ...v, headcount: g === 'pilots' || g === 'cabinCrew' ? headcount : (v?.headcount ?? 10), pipeline: [] }])),
+  },
+});
+
+await test('a rival tail parked for want of crew puts no seats on the pair', () => {
+  assert.deepEqual(seesBob(aliceView(bobCrew(0))), { spec: false, route: false });
+});
+
+await test('…and a fully crewed rival in a crew-pipeline world still counts', () => {
+  assert.deepEqual(seesBob(aliceView(bobCrew(50))), { spec: true, route: true });
+});
+
+await test('end to end: an uncrewed rival takes no more of your revenue than one that flies nothing', () => {
+  const solo = gameReducer(withRivals(alice.state,
+    aliceView({ ...bob, state: { ...bob.state, routes: [] } })), { type: 'ADVANCE_WEEK' });
+  const vsUncrewed = gameReducer(withRivals(alice.state, aliceView(bobCrew(0))), { type: 'ADVANCE_WEEK' });
+  const rev = (s) => s.lastReport?.totalRevenue ?? 0;
+  assert.equal(rev(vsUncrewed), rev(solo), `an uncrewed rival's seats still took ${rev(solo) - rev(vsUncrewed)} of revenue`);
+});
+
 Math.random = realRandom;
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

@@ -33,7 +33,9 @@ const test = (name, fn) => { try { fn(); console.log(`  ✓ ${name}`); passed++;
 
 const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
 const Dashboard = (await import('../src/components/Dashboard.jsx')).default;
-const Fleet = (await import('../src/components/Fleet.jsx')).default;
+const FleetMod = await import('../src/components/Fleet.jsx');
+const Fleet = FleetMod.default;
+const { AircraftDetail } = FleetMod;
 const render = (el) => renderToString(React.createElement(GameProvider, null, el)).replaceAll('<!-- -->', '');
 
 const NB = getAircraftType('b737800');
@@ -107,6 +109,45 @@ test('a fully crewed airline and a classic save see no crew alert', () => {
   const classic = seed({ crewPipeline: false, labor: halfPilots });
   assert.equal(crewStatus(classic, typeOf), null);
   assert.ok(!render(React.createElement(Fleet)).includes('No crew'));
+});
+
+// Discord, Nilla_wafer 2026-11-13 ("Not enough crew but airline still flying"):
+// the row said "No crew" while the open panel beside it showed 3 routes, 138h of
+// flying and +$1.49M/wk. The tick earns nothing from a parked tail, so the panel
+// must say what the week will actually book: no revenue, no flying, the fixed
+// bill only — with the crewed figure offered as what it earns once staffed.
+const netBox = (html) => {
+  const i = html.indexOf('Net / wk (incl. fixed)');
+  assert.ok(i >= 0, 'net box missing');
+  return html.slice(i, i + 900);
+};
+const utilBox = (html) => {
+  const i = html.indexOf('Utilisation (');
+  assert.ok(i >= 0, 'utilisation box missing');
+  return html.slice(i, i + 1200);
+};
+
+test('the open panel of a parked tail books no revenue and no flying this week', () => {
+  const st = seed({ labor: halfPilots });
+  const parkedId = crewStatus(st, typeOf).parkedIds[0];
+  const ac = st.fleet.find((a) => a.id === parkedId);
+  const html = render(React.createElement(AircraftDetail, { aircraft: ac, onClose: () => {} }));
+  const net = netBox(html);
+  assert.ok(!/>\+\$/.test(net), `a parked tail must not show a profit: ${net.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 200)}`);
+  assert.ok(/rev \$0\b/.test(net), 'parked: revenue this week is $0');
+  assert.ok(/no crew/i.test(net), 'the net box says why');
+  const util = utilBox(html).replace(/<[^>]+>/g, ' ');
+  assert.ok(/\b0\.0h\b/.test(util), `parked: no block hours this week (${util.replace(/\s+/g, ' ').slice(0, 160)})`);
+});
+
+test('…while a crewed tail on the same screen still shows its earnings', () => {
+  const st = seed({ labor: halfPilots });
+  const parked = new Set(crewStatus(st, typeOf).parkedIds);
+  const ac = st.fleet.find((a) => !parked.has(a.id));
+  assert.ok(ac, 'half the pilots must leave some tails flying');
+  const html = render(React.createElement(AircraftDetail, { aircraft: ac, onClose: () => {} }));
+  assert.ok(!/no crew/i.test(netBox(html)));
+  assert.ok(!/rev \$0\b/.test(netBox(html)));
 });
 
 console.log(`\n${failed === 0 ? '✅' : '❌'} ${passed} passed, ${failed} failed\n`);

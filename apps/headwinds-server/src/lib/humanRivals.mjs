@@ -25,6 +25,7 @@ import { getAircraftType } from '@tailwinds/engine/data/aircraft.js';
 import { calcPositioning } from '@tailwinds/engine/models/positioning.js';
 import { stateBrandReach, stateLoungeFields, stateTravelPartnerFields, stateLoyaltyFields, statePricingFields, loyaltyPresence, stateDevaluationNotice, calendarYear, calendarYearFrac, routeDistanceKm, isRouteActive, weekToGameDate, routeRangeShortfall, routeStops } from '@tailwinds/engine/utils/simulation.js';
 import { isOutOfService } from '@tailwinds/engine/data/maintenance.js';
+import { unstaffedAircraftIds } from '@tailwinds/engine/data/labor.js';
 import { HUB_TIERS } from '@tailwinds/engine/models/demand.js';
 import { blendJetAgeAppeal } from '@tailwinds/engine/models/jetAge.js';
 import { buildPlayerPairOffer } from '@tailwinds/engine/models/pairShare.js';
@@ -110,12 +111,21 @@ function flyingThisWeek(state) {
   const backThisWeek = (a) =>
     (a.status === 'grounded' && (a.groundedWeeksLeft ?? 1) <= 1)
     || (a.status === 'maintenance' && (a.checkWeeksLeft ?? 1) <= 1);
+  // Tails the tick parks for want of pilots or cabin crew ("No crew" on the
+  // Fleet page) — computed exactly as tickPrep computes crewGroundedIds, from
+  // the same fleet, labor and assigned-route set, so the tail a rival sees
+  // parked is the tail its owner's tick parks (Discord, Nilla_wafer 2026-11-13).
+  const crewParked = state.crewPipeline
+    ? new Set(unstaffedAircraftIds(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId),
+        new Set([...(state.routes ?? []), ...(state.cargoRoutes ?? [])].map((r) => r.aircraftId))))
+    : null;
   return (route) => {
     if (!((route?.weeklyFrequency ?? 0) > 0)) return false;
     if (!isRouteActive(route, month)) return false;
     const aircraft = fleet.get(route.aircraftId);
     if (!aircraft || aircraft.status === 'retired') return false;
     if (isOutOfService(aircraft) && !backThisWeek(aircraft)) return false;
+    if (crewParked?.has(aircraft.id)) return false;
     // A rival state not yet through the payload-range migration (it runs on that
     // player's next action or tick): every route it has is a pre-model route.
     const r = state.payloadRangeV2 ? route

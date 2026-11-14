@@ -929,10 +929,22 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
   // Utilisation comes from the shared reading, not from the per-route sim rows:
   // those cover passenger routes only, and they carry no season or cover logic.
   const util           = utilFor(state, aircraft, gd.month);
-  const totalBlockHrs  = util.flyingHours;
-  const totalRevenue   = routeResults.reduce((s, { result }) => s + result.revenue, 0);
-  const totalOpCost    = routeResults.reduce((s, { result }) => s + result.totalOpCost, 0);
-  const blockPct       = util.pct;
+  // Parked for want of crew (crewStatus reads exactly what tickPrep hands the
+  // tick): the week books no revenue, no operating cost and no block hours for
+  // this tail — only its lease and maintenance. The route rows still forecast
+  // what it earns once crewed, but the headline figures are the week's. They
+  // used to be the crewed forecast, so a "No crew" row sat beside a panel
+  // showing +$1.49M/wk (Discord, Nilla_wafer 2026-11-13).
+  const crewParked     = useMemo(
+    () => (crewStatus(state, (a) => getAircraftType(a.typeId))?.parkedIds ?? []).includes(aircraft.id),
+    [state.crewPipeline, state.labor, state.fleet, state.routes, state.cargoRoutes, aircraft.id]);
+  const crewedRevenue  = routeResults.reduce((s, { result }) => s + result.revenue, 0);
+  const crewedOpCost   = routeResults.reduce((s, { result }) => s + result.totalOpCost, 0);
+  const totalBlockHrs  = crewParked ? 0 : util.flyingHours;
+  const totalRevenue   = crewParked ? 0 : crewedRevenue;
+  const totalOpCost    = crewParked ? 0 : crewedOpCost;
+  const blockPct       = crewParked ? 0 : util.pct;
+  const crewedProfit   = crewedRevenue - (weeklyLease + weeklyMaint + crewedOpCost);
   const blockColor     = utilColorFor(blockPct, util.overCap);
 
   const weeklyTotal   = weeklyLease + weeklyMaint + totalOpCost;
@@ -1116,7 +1128,9 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
             }} />
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
-            {blockPct > 1
+            {crewParked
+              ? `parked — no crew this week · ${util.flyingHours.toFixed(1)}h/wk scheduled once crewed`
+              : blockPct > 1
               ? `over the ${bhCap}h weekly limit by ${(totalBlockHrs - bhCap).toFixed(1)}h — trim frequency or move a route`
               : util.overCap
                 ? `⚠ scheduled over the ${bhCap}h limit in ${UTIL_MONTH_NAMES[util.peakMonth - 1]} (${util.peakHours.toFixed(1)}h)`
@@ -1186,6 +1200,12 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
               rev {formatMoney(totalRevenue)} − costs {formatMoney(weeklyTotal)}
             </div>
           )}
+          {crewParked && routeResults.length > 0 && (
+            <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 3 }}
+                 title="Not enough pilots or cabin crew to fly this aircraft this week. Hire crew under Company ▸ Operations — it flies again the week they qualify.">
+              <Glyph e="⚠" size={10} /> No crew — parked · with crew {crewedProfit >= 0 ? '+' : ''}{formatMoney(crewedProfit)}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1224,6 +1244,11 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
           </div>
         )}
 
+        {crewParked && routeResults.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>
+            <Glyph e="⚠" size={12} /> Not flown this week — not enough crew. The figures below are what these routes earn once it is crewed again.
+          </div>
+        )}
         {routeResults.length > 0 ? routeResults.map(({ route: r, result: res, blockHrs: bh }) => {
           const org = getAirport(r.origin);
           const dst = getAirport(r.destination);
