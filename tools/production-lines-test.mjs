@@ -269,8 +269,10 @@ test('an announced type is open to launch customers only', () => {
   const d = orderDenial(era(), 'b7779x');
   assert.equal(d?.code, 'launch_only');
   assert.equal(d.minQty, 20);
-  assert.equal(orderDenial(era({ week: 27 }), 'b7779x')?.code, 'not_yet_flying', 'window closed');
-  assert.equal(orderDenial(era({ productionLinesWorld: undefined }), 'b7779x')?.code, 'not_yet_flying', 'no lines, no launch');
+  // Since 2026-11-12 (tools/preorders-test.mjs) a closed launch window, or an
+  // era world without lines, opens the type to preorders instead of locking it.
+  assert.equal(orderDenial(era({ week: 27 }), 'b7779x')?.code, 'preorder', 'window closed: preorders');
+  assert.equal(orderDenial(era({ productionLinesWorld: undefined }), 'b7779x')?.code, 'preorder', 'no lines: no launch window, preorders');
 });
 
 test('below the minimum, or leased, the launch order is refused', () => {

@@ -25,6 +25,19 @@ export const CLASSIC_CANCEL_REFUND = 0.95;
  */
 export function cancelOrderDialog(state, order) {
   const title = `Cancel the order for ${order?.name ?? 'this aircraft'}?`;
+  // Preorders, and launch frames on a slipped programme (engine
+  // orderCancelRefund): on time the deposit is forfeit; late, all of it back.
+  const slipped = (order?.preorder || order?.launch) && Number(order?.delayedWeeks) > 0;
+  if (slipped) {
+    const refund = order.totalPrice ?? 0;
+    return { allowed: true, title, refund, forfeit: 0, reason: null,
+      body: `The programme slipped, so you get ${formatMoney(refund)} back in full.` };
+  }
+  if (order?.preorder) {
+    const forfeit = order.totalPrice ?? 0;
+    return { allowed: true, title, refund: 0, forfeit, reason: null,
+      body: `Preorder deposits are not refundable: you lose the ${formatMoney(forfeit)} deposit${(order.balanceDue ?? 0) > 0 ? ` and owe nothing more` : ''}.` };
+  }
   if (state?.productionLinesWorld === true && !order?.used) {
     const terms = cancelTerms(order, absoluteWeek(state.year, state.week));
     if (!terms.allowed) {

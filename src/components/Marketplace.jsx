@@ -26,6 +26,7 @@ import { useProgressiveCount } from '../utils/useProgressiveCount.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { nextDeliveryWeeks, orderProgress } from '../data/delivery.js';
 import { worldFleetBoard, lineStatus, launchWindow, cancelTerms, MAX_TOTAL_DISCOUNT, lineGapWeeks, lineOf } from '../data/productionLines.js';
+import { preorderWindow, preorderDeposit, PREORDER_DEPOSIT, absWeekLabel } from '../data/preorders.js';
 import AircraftCheckout from './AircraftCheckout.jsx';
 import FleetConfig from './FleetConfig.jsx';
 import { OrderReplacementLine, OrderFilterBar, useOrderFilter } from './FleetRenewal.jsx';
@@ -290,7 +291,13 @@ export function OrderCard({ order, currentAbsWeek, onCancel, onRename, onEditCab
   const isOwned   = order.ownershipType === 'owned';
   // Production-line worlds: the forfeit depends on how near the slot is, and
   // launch frames are firm (data/productionLines.js cancelTerms).
-  const terms     = linesWorld && !order.used ? cancelTerms(order, currentAbsWeek) : null;
+  // Preorders and slipped programmes have their own terms (engine
+  // orderCancelRefund): deposit forfeit on time, everything back when late.
+  const isPre     = !!order.preorder;
+  const slipped   = Number(order.delayedWeeks) > 0;
+  const terms     = (isPre || (order.launch && slipped))
+    ? { allowed: true, refund: slipped ? (order.totalPrice ?? 0) : 0, forfeit: slipped ? 0 : (order.totalPrice ?? 0), own: true }
+    : linesWorld && !order.used ? cancelTerms(order, currentAbsWeek) : null;
   const cfg       = order.config;
   const totalSeats = cfg
     ? CABIN_CLASSES.reduce((s, c) => s + (cfg[c.key] || 0), 0)
@@ -434,7 +441,22 @@ export function OrderCard({ order, currentAbsWeek, onCancel, onRename, onEditCab
           display: 'flex', gap: 16, padding: '8px 0 10px',
           borderTop: '1px solid var(--border-subtle)', marginTop: 2,
         }}>
-          {isOwned ? (
+          {isOwned && isPre ? (
+            <>
+              <div>
+                <div style={labelStyle}>Deposit Paid</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)', marginTop: 2 }}>
+                  {formatMoney(order.totalPrice)}
+                </div>
+              </div>
+              <div data-balance-due>
+                <div style={labelStyle}>Due on Delivery</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--yellow)', marginTop: 2 }}>
+                  {formatMoney(order.balanceDue ?? 0)}
+                </div>
+              </div>
+            </>
+          ) : isOwned ? (
             <div>
               <div style={labelStyle}>Purchase Price</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)', marginTop: 2 }}>
@@ -478,9 +500,11 @@ export function OrderCard({ order, currentAbsWeek, onCancel, onRename, onEditCab
           <div style={{ height: 4, background: 'var(--surface3)', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${progress * 100}%`, background: catColor, borderRadius: 2, transition: 'width 0.3s' }} />
           </div>
-          {(order.launch || order.slotPremium > 0 || order.priority) && (
+          {(order.launch || isPre || slipped || order.slotPremium > 0 || order.priority) && (
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-              {order.launch && <span className="market-chip market-chip-blue" style={{ marginLeft: 0 }}><Glyph e="🚀" /> Launch customer · firm</span>}
+              {order.launch && <span className="market-chip market-chip-blue" style={{ marginLeft: 0 }}><Glyph e="🚀" /> Launch customer{slipped ? '' : ' · firm'}</span>}
+              {isPre && <span className="market-chip market-chip-blue" style={{ marginLeft: 0 }}><Glyph e="📝" /> Preorder</span>}
+              {slipped && <span className="market-chip market-chip-yellow" style={{ marginLeft: 6 }} title="The programme slipped: cancelling refunds everything paid."><Glyph e="⏳" /> Delayed {Math.round(order.delayedWeeks * 12 / 52)} mo</span>}
               {(order.slotPremium > 0 || order.priority) && <span className="market-chip market-chip-yellow" style={{ marginLeft: order.launch ? 6 : 0 }}>{order.priority ? '⚡ Priority' : 'Early slot'}{order.slotPremium > 0 ? ` +${formatMoney(order.slotPremium)}` : ''}</span>}
             </div>
           )}
@@ -496,7 +520,9 @@ export function OrderCard({ order, currentAbsWeek, onCancel, onRename, onEditCab
               opacity: terms && !terms.allowed ? 0.5 : 1,
             }}
           >
-            {terms
+            {terms?.own
+              ? (slipped ? 'Cancel Order (full refund — programme slipped)' : `Cancel Order (${formatMoney(terms.forfeit)} deposit forfeit)`)
+              : terms
               ? (!terms.allowed
                   ? 'Firm order — cannot be cancelled'
                   : terms.forfeit > 0
@@ -537,6 +563,10 @@ export function OrdersTab({ pendingOrders, year, week, onCancel, onCancelMany = 
   const capitalSpent   = purchases.reduce((s, o) => s + (o.totalPrice || 0), 0);
   const incomingLease  = leases.reduce((s, o) => s + (o.weeklyLease || 0), 0);
   const nextDelivery   = sorted[0]?.deliverAbsWeek - currentAbsWeek;
+  // Preorder balances still to pay, and how much of it lands in the next 13 weeks.
+  const preorders      = sorted.filter(o => o.preorder && (o.balanceDue ?? 0) > 0);
+  const balanceDue     = preorders.reduce((s, o) => s + (o.balanceDue || 0), 0);
+  const balanceSoon    = preorders.filter(o => o.deliverAbsWeek - currentAbsWeek <= 13).reduce((s, o) => s + (o.balanceDue || 0), 0);
 
   return (
     <div>
@@ -546,6 +576,7 @@ export function OrdersTab({ pendingOrders, year, week, onCancel, onCancelMany = 
         {statTile('Next Delivery', nextDelivery <= 0 ? 'Arriving' : `${nextDelivery}w`, deliveryDateLabel(sorted[0].deliverAbsWeek))}
         {statTile('Capital Committed', formatMoney(capitalSpent), 'purchases (paid)')}
         {statTile('Incoming Lease Costs', `${formatMoney(incomingLease)}/wk`, 'starts on delivery')}
+        {balanceDue > 0 && statTile('Preorder Balances', formatMoney(balanceDue), `${formatMoney(balanceSoon)} due in the next 13 weeks`)}
       </div>
 
       {/* Delivery forecast timeline */}
@@ -723,7 +754,7 @@ function MarketTable({ rows, sort, setSort, onCheckout, calYearRef = null }) {
                     title={r.eraBlock || undefined}
                     onClick={() => r.canAffordBuy && onCheckout({ typeId: t.id, mode: 'buy' })}
                   >
-                    {r.eraBlock ? `In service ${AIRCRAFT_TYPES.find(x => x.id === t.id)?.eis ?? ''}` : r.launch ? 'Launch order' : 'Buy'}
+                    {r.eraBlock ? `In service ${AIRCRAFT_TYPES.find(x => x.id === t.id)?.eis ?? ''}` : r.launch ? 'Launch order' : r.preorder ? 'Preorder' : 'Buy'}
                   </button>
                 </td>
               </tr>
@@ -831,9 +862,12 @@ export default function Marketplace() {
     const lw = launchWindow(state, type);
     return lw?.open ? lw : null;
   };
+  // Announced type open to preorders (engine orderDenial 'preorder',
+  // data/preorders.js): any quantity, bought outright, deposit now.
+  const preorderInfo = (type) => (calYear != null ? preorderWindow(state, type) : null);
   const eraLockReason = (type) => {
     if (calYear == null) return null;
-    if ((type?.eis ?? 0) > calYear) return launchInfo(type) ? null : `Enters service ${type.eis}`;
+    if ((type?.eis ?? 0) > calYear) return (launchInfo(type) || preorderInfo(type)) ? null : `Enters service ${type.eis}`;
     if (cometWithdrawn(state, type?.id)) return 'Certificate of airworthiness withdrawn — grounded worldwide';
     if (aircraftAvailability(type, calYear) === 'expired') return `No airworthy frames left — line closed ${type.oop}`;
     return null;
@@ -851,6 +885,7 @@ export default function Marketplace() {
     // Event worlds (engine data/eventRules.js) — mirrors leaseDenial().
     if (state.eventRules?.noLeases) return 'Event rules: no leasing \u2014 buy new or used';
     if (launchInfo(type)) return 'Launch customers buy outright \u2014 no lessor carries it before it flies';
+    if (preorderInfo(type)) return 'Preorders are bought outright \u2014 no lessor carries it before it flies';
     const eraLock = eraLockReason(type);
     if (eraLock) return eraLock;
     if (calYear == null && isVintage(type)) return `No lessor stocks it \u2014 line closed ${type.oop}. Buy it outright`;
@@ -1265,16 +1300,19 @@ export default function Marketplace() {
             lease:    eraWeeklyLease(type, calYear),
             buy:      buyPrice,
             discPct:  0,
-            delivery: linesWorld && !launchInfo(type)
+            delivery: preorderInfo(type)
+              ? preorderInfo(type).firstDeliveryAbs - nowAbs
+              : linesWorld && !launchInfo(type)
               ? lineStatus(state, type, nowAbs).nextStandard - nowAbs
               : nextDeliveryWeeks(type, pendingOrders, nowAbs),
             worldFleet:  board[type.id]?.inService ?? 0,
             worldOrders: board[type.id]?.onOrder ?? 0,
             customers:   customersTitle(board[type.id]),
             launch:      !!launchInfo(type),
+            preorder:    !!preorderInfo(type),
             owned:    alreadyOwned,
             onOrder,
-            canAffordBuy: cash >= buyPrice && !eraLockReason(type),
+            canAffordBuy: cash >= (preorderInfo(type) ? preorderDeposit(buyPrice) : buyPrice) && !eraLockReason(type),
             eraBlock: eraLockReason(type),
             leaseBlock: leaseBlockReason(type),
             catColor: CAT_COLORS[type.category] || '#93a4ba',
@@ -1305,13 +1343,14 @@ export default function Marketplace() {
           const effScore      = efficiencyScore(type) ?? 0;
           const effRaw        = (seatEfficiency(type) ?? 0).toFixed(2);
           const eraLock       = eraLockReason(type);
-          const canAffordBuy  = cash >= buyPrice && !eraLock;
+          const preorder      = preorderInfo(type);
+          const canAffordBuy  = cash >= (preorder ? preorderDeposit(buyPrice) : buyPrice) && !eraLock;
           const effColor      = effScore >= 70 ? 'var(--green)' : effScore >= 40 ? 'var(--yellow)' : 'var(--red)';
 
           // Delivery note. Production-line worlds: the next slot at list price on
           // the shared line (rivals' bookings included), plus the earliest slot.
           const launch        = launchInfo(type);
-          const ls            = linesWorld && !launch ? lineStatus(state, type, currentAbsWeek) : null;
+          const ls            = linesWorld && !launch && !preorder ? lineStatus(state, type, currentAbsWeek) : null;
           const deliveryIn    = ls ? ls.nextStandard - currentAbsWeek : nextDeliveryWeeks(type, pendingOrders, currentAbsWeek);
           const boardRow      = board[type.id];
           const boardAirlines = (boardRow?.customers ?? []).filter(c => c.inService + c.onOrder > 0);
@@ -1359,6 +1398,15 @@ export default function Marketplace() {
                       border: '1px solid rgba(163,113,247,0.45)',
                     }}>
                       <Glyph e="🚀" /> Launch customers · until {deliveryDateLabel(launch.closesAbs)}
+                    </span>
+                  )}
+                  {preorder && (
+                    <span className="badge" data-preorder-badge title={`In development. Preorders deliver from ${absWeekLabel(state, preorder.firstDeliveryAbs)}.`} style={{
+                      marginLeft: 6,
+                      background: 'rgba(88,166,255,0.18)', color: 'var(--accent)',
+                      border: '1px solid rgba(88,166,255,0.4)',
+                    }}>
+                      <Glyph e="📝" /> Preorders · from {absWeekLabel(state, preorder.firstDeliveryAbs)}{preorder.delayWeeks > 0 ? ' · delayed' : ''}
                     </span>
                   )}
                   {alreadyOwned > 0 && (
@@ -1505,8 +1553,24 @@ export default function Marketplace() {
                   </div>
                 )}
 
+                {/* Preorder terms (era worlds) */}
+                {preorder && (
+                  <div data-preorder-terms style={{
+                    marginTop: 8, padding: '7px 9px', borderRadius: 4, fontSize: 11, lineHeight: 1.5,
+                    background: 'rgba(88,166,255,0.08)', border: '1px solid rgba(88,166,255,0.3)',
+                  }}>
+                    <strong><Glyph e="📝" /> In development{preorder.delayWeeks > 0 ? ' · running late' : ''}.</strong>{' '}
+                    Preorder any number, bought outright: {Math.round(PREORDER_DEPOSIT * 100)}% deposit now ({formatMoney(preorderDeposit(buyPrice))} a frame), the rest as each frame arrives,
+                    from {absWeekLabel(state, preorder.firstDeliveryAbs)}.
+                    {preorder.discount >= 0.005 ? <> Early-bird {Math.round(preorder.discount * 100)}% off on top of the bulk discount, shrinking to nothing at entry into service.</> : null}
+                    {' '}{preorder.delayWeeks > 0
+                      ? <>The programme has slipped about {Math.round(preorder.delayWeeks * 12 / 52)} months: preorders can be cancelled for a full refund.</>
+                      : <>Cancelling forfeits the deposit. Programmes can slip by six months to a year.</>}
+                  </div>
+                )}
+
                 {/* Delivery note */}
-                {!launch && (
+                {!launch && !preorder && (
                   <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
                     <Glyph e="📅" /> Delivery in <strong>{deliveryIn} week{deliveryIn !== 1 ? 's' : ''}</strong>
                     {ls ? ' at list price' : onOrder > 0 ? ` (${onOrder} already queued)` : ''}
@@ -1631,7 +1695,7 @@ export default function Marketplace() {
                       title={eraLock || undefined}
                       onClick={() => canAffordBuy && setCheckout({ typeId: type.id, mode: 'buy' })}
                     >
-                      {eraLock ? `In service ${type.eis}` : !canAffordBuy ? 'Can\'t afford' : launch ? 'Launch order →' : 'Buy →'}
+                      {eraLock ? `In service ${type.eis}` : !canAffordBuy ? 'Can\'t afford' : launch ? 'Launch order →' : preorder ? 'Preorder →' : 'Buy →'}
                     </button>
                   </div>
 

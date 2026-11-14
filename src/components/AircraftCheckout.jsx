@@ -22,6 +22,7 @@ import { featureLive, ERA_FEATURE_MESSAGE } from '../data/eraFeatures.js';
 import { absoluteWeek } from '../utils/fuel.js';
 import { deliverySchedule, deliveryLead } from '../data/delivery.js';
 import { makeSlotAllocator, slotCalendar, PRIORITY_FEE_CAP, EARLY_SLOT_MAX_PREMIUM, launchWindow, launchOrderDiscount, lineInfo, lineOf } from '../data/productionLines.js';
+import { preorderWindow, preorderOrderDiscount, preorderDeposit, PREORDER_DEPOSIT } from '../data/preorders.js';
 import { Glyph, GlyphLabel } from './Icons.jsx';
 import CabinTemplatePicker from './CabinTemplatePicker.jsx';
 import CabinFloorPlan from './CabinFloorPlan.jsx';
@@ -34,6 +35,7 @@ import {
   crewRequiredForOrderBook,
 } from '../data/labor.js';
 import { ReplacesSection, replacesForDispatch } from './FleetRenewal.jsx';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -208,6 +210,10 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
     return lw?.open ? lw : null;
   })();
   const isLaunch = !!launchTerms;
+  // Preorder (data/preorders.js): an announced type in an era world, any
+  // quantity, deposit now and the balance as each frame arrives.
+  const preorderTerms = (mode === 'buy' && type && !isLaunch) ? preorderWindow(state, type) : null;
+  const isPreorder = !!preorderTerms;
   // null = the standard week; an absWeek = start looking there (standard only).
   const [slotFrom, setSlotFrom] = useState(null);
   const [priority, setPriority] = useState(defaultPriority === true);
@@ -380,29 +386,37 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   // them straight into the fleet), so only the rest are scheduled — otherwise
   // "last in Nw" counted the instant frames as if they had queued too.
   // Launch frames never skip the queue (the aeroplane does not exist yet).
-  const instantCount  = isLaunch ? 0 : Math.min(quantity, starterDeliveriesRemaining);
+  const instantCount  = (isLaunch || isPreorder) ? 0 : Math.min(quantity, starterDeliveriesRemaining);
   // Production lines: the same allocator ORDER_AIRCRAFT uses, over the same
   // injected rival bookings — so the weeks on screen are the weeks you get
   // unless another airline books first (then the server moves you on).
-  const usePriority = linesWorld && !isLaunch && priority;
+  const usePriority = linesWorld && !isLaunch && !isPreorder && priority;
   const planLine = (prio) => {
     const alloc = makeSlotAllocator(state, type, {
       absWeek:   currentAbsWeek,
-      fromWeek:  (isLaunch || prio) ? null : slotFrom,
-      notBefore: isLaunch ? launchTerms.eisAbs : null,
+      fromWeek:  (isLaunch || isPreorder || prio) ? null : slotFrom,
+      notBefore: isLaunch ? launchTerms.eisAbs : isPreorder ? preorderTerms.firstDeliveryAbs : null,
       priority:  prio,
     });
     return { alloc, slots: Array.from({ length: quantity - instantCount }, () => alloc.takeSlot()) };
   };
   const linePlan  = linesWorld ? planLine(usePriority) : null;
   // The other choice, quoted on its button so the trade is visible up front.
-  const otherPlan = linesWorld && !isLaunch ? planLine(!usePriority) : null;
+  const otherPlan = linesWorld && !isLaunch && !isPreorder ? planLine(!usePriority) : null;
   const lineAlloc = linePlan?.alloc ?? null;
   const deliveryWeeks = [
     ...Array(instantCount).fill(currentAbsWeek),
     ...(linePlan
       ? linePlan.slots.map(sl => sl.week)
-      : deliverySchedule(type, pendingOrders, currentAbsWeek, quantity - instantCount)),
+      : isPreorder
+        // ORDER_AIRCRAFT: each frame at max(its queue week, first delivery).
+        ? (() => { const out = []; let book = pendingOrders;
+            for (let i = 0; i < quantity; i++) {
+              const w = Math.max(deliverySchedule(type, book, currentAbsWeek, 1)[0], preorderTerms.firstDeliveryAbs);
+              out.push(w); book = [...book, { typeId, deliverAbsWeek: w }];
+            }
+            return out; })()
+        : deliverySchedule(type, pendingOrders, currentAbsWeek, quantity - instantCount)),
   ];
   const firstDelivery = deliveryWeeks[0];
   const lastDelivery  = deliveryWeeks[deliveryWeeks.length - 1];
@@ -414,7 +428,8 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const pendingCountNow = pendingOfType.length;
   const alreadyOwned    = fleetCountNow + pendingCountNow;
   const discount        = mode === 'buy'
-    ? (isLaunch ? launchOrderDiscount(state, type, quantity) : orderDiscount(quantity))
+    ? (isLaunch ? launchOrderDiscount(state, type, quantity)
+      : isPreorder ? preorderOrderDiscount(state, type, quantity) : orderDiscount(quantity))
     : 0;
   const discPct         = Math.round(discount * 100);
 
@@ -427,7 +442,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const wifiFittable    = canFitWifi(type);
   const wifiOffered     = wifiEraLive && wifiFittable;
   const wantsWifi       = hasWifi && wifiOffered;
-  const baseUnitPrice   = isLaunch
+  const baseUnitPrice   = (isLaunch || isPreorder)
     ? Math.round(eraPurchasePrice(type, calYear) * (1 - discount))
     : effectivePurchasePrice(type, mode === 'buy' ? quantity : 1, calYear);
   const enginePriceAdj  = Math.round(baseUnitPrice * (enginePriceMod - 1));
@@ -477,12 +492,16 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
   const totalProductFee = unitProductFee * quantity;
   const totalWifiFee    = unitWifiFee * quantity;
   const totalExtras     = unitExtras * quantity;
-  const buyTotalDue     = totalBuyPrice + totalExtras;
+  // Preorder: the deposit on each airframe now (the reducer's preorderDeposit),
+  // fittings as usual; the balance falls due frame by frame on delivery.
+  const unitDepositNow  = isPreorder ? preorderDeposit(unitBuyPrice) : 0;
+  const preBalanceTotal = isPreorder ? (unitBuyPrice - unitDepositNow) * quantity : 0;
+  const buyTotalDue     = isPreorder ? unitDepositNow * quantity + totalExtras : totalBuyPrice + totalExtras;
   const leaseDepositDue = totalLeaseDeposit + totalExtras + (mode === 'lease' ? totalSlotPremium : 0);
 
   const canAfford     = mode === 'buy' ? cash >= buyTotalDue : cash >= leaseDepositDue;
   const maxAffordable = mode === 'buy'
-    ? Math.max(0, Math.floor(cash / (unitBuyPrice + unitExtras)))
+    ? Math.max(0, Math.floor(cash / ((isPreorder ? unitDepositNow : unitBuyPrice) + unitExtras)))
     : Math.max(0, Math.floor(cash / (unitLeaseDeposit + unitExtras)));
 
   // ── New World Restrictions: lease order book ──────────────────────────────
@@ -587,7 +606,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)',
         zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
       }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      {...backdropDismiss(() => onClose())}
     >
       <div className={`checkout-modal${wide && !isFreighter ? ' has-plan' : ''}`} style={{
         background: 'var(--surface2)', borderRadius: 10,
@@ -705,8 +724,23 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
             </div>
           )}
 
+          {/* Preorder terms */}
+          {isPreorder && (
+            <div data-preorder-checkout style={{
+              marginTop: 10, padding: '8px 12px', borderRadius: 6, fontSize: 12.5, lineHeight: 1.5,
+              background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.35)', color: 'var(--text)',
+            }}>
+              <Glyph e="📝" /> <strong>Preorder.</strong> The {type.name} is still in development{preorderTerms.delayWeeks > 0 ? ' and running late' : ''}.
+              You pay {Math.round(PREORDER_DEPOSIT * 100)}% now and the rest as each frame arrives{discount > 0 ? <>, at {Math.round(discount * 100)}% off list ({orderDiscount(quantity) > 0 ? 'bulk + ' : ''}early bird)</> : null}.
+              {' '}<strong>A balance you cannot pay when its frame arrives cancels that frame, and its deposit is lost.</strong>
+              {' '}{preorderTerms.delayWeeks > 0
+                ? 'The programme has already slipped, so these frames can be cancelled for a full refund.'
+                : 'Cancelling forfeits the deposit, unless the programme slips — then you can walk away with everything back.'}
+            </div>
+          )}
+
           {/* Production line: standard (list) or priority delivery */}
-          {lineAlloc && !isLaunch && (() => {
+          {lineAlloc && !isLaunch && !isPreorder && (() => {
             const cal  = slotCalendar(state, type, currentAbsWeek, 12);
             const info = lineInfo(lineOf(type));
             const chosen = slotFrom ?? cal.rows[0]?.week;
@@ -1174,7 +1208,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--border)', fontWeight: 700, fontSize: 15 }}>
-                  <span>Total{quantity > 1 ? ` (${quantity} aircraft)` : ''}</span>
+                  <span>{isPreorder ? 'Due now' : 'Total'}{quantity > 1 ? ` (${quantity} aircraft)` : ''}</span>
                   <span style={{ color: canAfford ? 'var(--green)' : 'var(--red)' }}>{formatMoney(buyTotalDue)}</span>
                 </div>
                 {!canAfford && (
@@ -1182,7 +1216,13 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
                     Need {formatMoney(buyTotalDue - cash)} more{maxAffordable > 0 ? ` · can afford ${maxAffordable}` : ''}
                   </div>
                 )}
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, textAlign: 'right' }}>Full payment due at order</div>
+                {isPreorder ? (
+                  <div data-preorder-balance style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, textAlign: 'right' }}>
+                    {Math.round(PREORDER_DEPOSIT * 100)}% deposit now · {formatMoney(preBalanceTotal)} more as the frames arrive
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, textAlign: 'right' }}>Full payment due at order</div>
+                )}
               </div>
             ) : (
               <div style={{ fontSize: 13 }}>
@@ -1387,7 +1427,7 @@ export default function AircraftCheckout({ typeId, mode, onClose, replaceIds = n
               <GlyphLabel size={13} text={over
                 ? '⚠ Fix cabin layout'
                 : mode === 'buy'
-                  ? (isLaunch ? `🚀 Launch order ${quantity}× ${type.name}` : `🛒 Order ${quantity > 1 ? quantity + '× ' : ''}${type.name}`)
+                  ? (isLaunch ? `🚀 Launch order ${quantity}× ${type.name}` : isPreorder ? `📝 Preorder ${quantity > 1 ? quantity + '× ' : ''}${type.name}` : `🛒 Order ${quantity > 1 ? quantity + '× ' : ''}${type.name}`)
                   : `✍️ Sign Lease${quantity > 1 ? ` × ${quantity}` : ''}`} />
             </button>
           </div>

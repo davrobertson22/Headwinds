@@ -190,7 +190,9 @@ function guardOrderAircraft(payload) {
   }
   // Priority delivery is a choice, not a price: the reducer works out the fee.
   if (payload.priority !== undefined) payload.priority = payload.priority === true;
-  for (const k of ['deliverAbsWeek', 'lineId', 'slotPremium', 'launch', 'totalPrice']) delete payload[k];
+  // Preorder terms (deposit, balance, slip) are the reducer's too.
+  for (const k of ['deliverAbsWeek', 'lineId', 'slotPremium', 'launch', 'totalPrice',
+    'preorder', 'balanceDue', 'delayedWeeks']) delete payload[k];
   // Fleet renewal: the tails these frames replace, one id per frame. The
   // reducer checks each against the airline's own fleet; here, shape only.
   if (payload.replaces !== undefined) {

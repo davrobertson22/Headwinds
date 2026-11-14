@@ -404,6 +404,10 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
       productionLineScale: tc.productionLineScale ?? capacityScale(world.maxPlayers),
       ...(tc.productionLineRates ? { productionLineRates: tc.productionLineRates } : {}),
     } : {}),
+    // Programme slips (engine data/preorders.js): the world's revealed table,
+    // so a joiner's preorders agree with its rivals' before its first tick.
+    ...(Number.isInteger(tc.startYear) && tc.programmeDelays && typeof tc.programmeDelays === 'object'
+      ? { programmeDelays: tc.programmeDelays } : {}),
     // Rival itineraries: baked at join so the client's projections agree with
     // the tick from the first render; the tick re-stamps it every week anyway.
     rivalItineraries: rivalItinerariesOf(tc),

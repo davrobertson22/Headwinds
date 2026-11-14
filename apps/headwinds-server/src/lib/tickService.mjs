@@ -16,6 +16,7 @@ import { VALUATION, svpsOf, svpsScore, isDemandModel } from '@tailwinds/engine/u
 import { liveStatsOf, compareStandings } from '@tailwinds/engine/utils/standings.js';
 import { liveStatColumnsFrom } from './liveStats.mjs';
 import { tickEvents, rollEvents } from '@tailwinds/engine/data/events.js';
+import { revealProgrammeDelays } from '@tailwinds/engine/data/preorders.js';
 import { TRAVEL_PARTNER_MAP } from '@tailwinds/engine/data/travelPartners.js';
 import { GATE_AUCTION_OPEN_WEEK, GATE_LOCKOUT_WEEKS } from '@tailwinds/engine/data/airports.js';
 import { WEEKS_PER_YEAR, worldTotalWeeks, tickIntervalMs, deriveWorldEndsAt, rivalItinerariesOf, fuelOpsVOf, isPreStart, rankingSinceOf, eventRulesOfWorld } from './worldConfig.mjs';
@@ -224,6 +225,14 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
   // stores the same value after this week, and prices next week on it.
   const cycleWorld = (Number(world.tickConfig?.demandModel) || 1) >= 4;
   const worldCycle = cycleWorld ? worldEconomyCycle(world.worldSeed ?? world.id, fromIndex) : null;
+  // Programme slips (engine data/preorders.js), era worlds only: decided from
+  // the world's seed, revealed half a year before entry into service, kept in
+  // tickConfig so every airline (and every late joiner) gets the same table.
+  // The seed never leaves the server; airlines only ever see revealed slips.
+  const programmeDelays = eraStartYear != null
+    ? revealProgrammeDelays({ seed: world.worldSeed ?? world.id, startYear: eraStartYear, absWeek: toIndex,
+        prev: world.tickConfig?.programmeDelays ?? {} })
+    : null;
   const prevWorldEvents = Array.isArray(world.tickConfig?.runtimeEvents)
     ? world.tickConfig.runtimeEvents : [];
   const { updated: survivingWorldEvents } = tickEvents(prevWorldEvents);
@@ -292,6 +301,7 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       withRivals(preState, rivalViews.get(airline.id)),
       { type: 'ADVANCE_WEEK', worldFuelIndex: worldFuel, worldCrackIndex: worldCrack, worldEvents, valuationNoise,
         marketIndex: worldMarket,
+        ...(programmeDelays ? { programmeDelays } : {}),
         ...(worldCycle ? { economyCycle: worldCycle } : {}),
         incomingDividends: creditsByAirline.get(airline.id)?.total ?? 0,
         incomingFarmFees:  creditsByAirline.get(airline.id)?.farmFees ?? 0 },
@@ -446,7 +456,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
           currentYear: newYear,
           // Persist the world's shared event list (preserving any other tickConfig
           // keys, e.g. scheduledStartAt) so next week ages from it.
-          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: worldEvents, rankingSince },
+          tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: worldEvents, rankingSince,
+            ...(programmeDelays ? { programmeDelays } : {}) },
           ...(ended ? { status: 'ENDED', endedAt: new Date() } : {}),
         },
       });
@@ -1034,7 +1045,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
 
     // Return the new shared event list so a multi-week catch-up ages events from
     // week to week (the in-memory `world` is threaded forward in runDueTicks).
-    return { ok: true, week: newWeek, year: newYear, ended, airlines: outcome.airlines, worldEvents };
+    return { ok: true, week: newWeek, year: newYear, ended, airlines: outcome.airlines, worldEvents,
+      ...(programmeDelays ? { programmeDelays } : {}) };
   } catch (err) {
     log.error(`[tick] world ${world.id} week ${toIndex} failed:`, err);
     // The transaction rolled back — record the failure separately for the audit
@@ -1185,7 +1197,8 @@ export async function runDueTicks(prisma, {
         status: res.ended ? 'ENDED' : 'RUNNING',
         // Carry the just-persisted shared event list forward so the next
         // catch-up week ages from it instead of re-rolling the stale list.
-        tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: res.worldEvents ?? world.tickConfig?.runtimeEvents ?? [] },
+        tickConfig: { ...(world.tickConfig ?? {}), runtimeEvents: res.worldEvents ?? world.tickConfig?.runtimeEvents ?? [],
+          ...(res.programmeDelays ? { programmeDelays: res.programmeDelays } : {}) },
       };
       if (res.ended) log.info?.(`[tick] ${world.name} reached its final week — ENDED`);
     } catch (err) {
