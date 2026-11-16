@@ -119,7 +119,10 @@ test('AI carriers never choose a prestige or tiny-run type, in any year', () => 
   // are flagged so that adding them moved no AI fleet in a live world (premium
   // carriers went to the 767-300 and both golden masters broke without it).
   const skip = AIRCRAFT_TYPES.filter(t => t.aiSkip).map(t => t.id).sort();
-  assert.deepEqual(skip, [...ADDED.map(a => a[0]), 'tu144'].sort());
+  // Later additions carry the flag for the same reason; each has its own test
+  // (the ATR series: tools/atr-series-test.mjs).
+  const LATER = ['atr42300', 'atr42500', 'atr72200', 'atr72500', 'atr72xt', 'atr42300f', 'atr72200f', 'atr72500f'];
+  assert.deepEqual(skip.filter(id => !LATER.includes(id)), [...ADDED.map(a => a[0]), 'tu144'].sort());
   const was = getEraCalendarYear();
   const picked = new Set();
   try {

@@ -768,6 +768,113 @@ export const AIRCRAFT_TYPES = [
     description: 'Workhorse turboprop. Excellent economics on short regional routes.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/F-WWEZ_%28948%29_ATR.72-212A%28500%29_FlyFireFly_TLS_30AUG11_%286097869500%29_%28cropped%29.jpg/960px-F-WWEZ_%28948%29_ATR.72-212A%28500%29_FlyFireFly_TLS_30AUG11_%286097869500%29_%28cropped%29.jpg',
   },
+  // ATR 42 and 72 by series (Discord, Zwe Min Khant, 2026-11-14: "More
+  // aircraft & its variants"). The -600s above are the current models; these
+  // are the earlier series, which still fly in numbers on regional networks,
+  // and the PW127XT -600. Published figures are ATR's; see the devlog entry.
+  {
+    id: 'atr42300',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 42-300',
+    manufacturer: 'ATR',
+    category: 'Turboprop',
+    eis: 1985,
+    oop: 1996,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 50,
+    typicalSeats: 48,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
+    range: 831,   // ATR 42-300 factsheet: 449 nm with 48
+    runwayFt: 3700,
+    weeklyLease: 12_500,
+    purchasePrice: 5000000,
+    fuelBurnPer100km: 146,
+    crewCostPerKm: 1.26,
+    baseMaintenancePerWk: 9_400,
+    description: 'The original ATR, on 1,800 shp PW120s and four-blade propellers. Slower and thirstier than the later 42s, but cheap: the type that opened up thin regional routes across Europe and the Americas from 1985.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/OY-MUH_ATR.42-300_Muk_Air_CPH_16AUG00_(5934231857).jpg?width=960',
+  },
+  {
+    id: 'atr42500',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 42-500',
+    manufacturer: 'ATR',
+    category: 'Turboprop',
+    eis: 1995,
+    oop: 2012,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 50,
+    typicalSeats: 48,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 1302,   // ATR 42-500 factsheet: 703 nm with 48
+    runwayFt: 3700,
+    weeklyLease: 24_000,
+    purchasePrice: 11000000,
+    fuelBurnPer100km: 140,
+    crewCostPerKm: 1.26,
+    baseMaintenancePerWk: 9_000,
+    description: 'The second-generation ATR 42: PW127E engines, six-blade propellers and a new cabin. Almost everything the -600 does, without the glass cockpit, at about half the price second-hand.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/G-LMRE_-_ATR_42-500_-_Loganair_LHR_050326.jpg?width=960',
+  },
+  {
+    id: 'atr72200',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 72-200',
+    manufacturer: 'ATR',
+    category: 'Turboprop',
+    eis: 1989,
+    oop: 1997,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 74,
+    typicalSeats: 66,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 520,   // arrives 10y old - out of production, bought used
+    range: 1_596,
+    runwayFt: 4600,
+    weeklyLease: 16_500,
+    purchasePrice: 7000000,
+    fuelBurnPer100km: 184,
+    crewCostPerKm: 1.39,
+    baseMaintenancePerWk: 15_000,
+    description: 'The first stretched ATR (the 72-201/202), on PW124B engines. Needs the longest runway of the family and burns the most, but 70 seats for the price of a used 50-seater.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/VASCO_ATR_72-200_(VN-B208)_at_Con_Dao_Airport.jpg?width=960',
+  },
+  {
+    id: 'atr72500',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 72-500',
+    manufacturer: 'ATR',
+    category: 'Turboprop',
+    eis: 1997,
+    oop: 2011,   // year the production line closed (era worlds: second-hand only after this)
+    seats: 74,
+    typicalSeats: 68,   // seats the headline range is quoted at
+    deliveredAgeWeeks: 312,   // arrives 6y old - out of production, bought used
+    range: 1_430,
+    runwayFt: 4000,
+    weeklyLease: 26_000,
+    purchasePrice: 12000000,
+    fuelBurnPer100km: 181,
+    crewCostPerKm: 1.39,
+    baseMaintenancePerWk: 14_500,
+    description: 'The ATR 72-212A: PW127F engines and six-blade propellers, the best-selling ATR before the -600. Shorter take-off than the -200, and still the backbone of many regional fleets.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Tunisair_Express_ATR_72-212A,_TS-LBE_(8920606170).jpg?width=960',
+  },
+  {
+    id: 'atr72xt',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 72-600 (PW127XT)',
+    manufacturer: 'ATR',
+    category: 'Turboprop',
+    eis: 2025,
+    seats: 78,
+    typicalSeats: 70,   // seats the headline range is quoted at
+    range: 1_528,
+    runwayFt: 4200,
+    weeklyLease: 46_000,
+    purchasePrice: 23000000,
+    fuelBurnPer100km: 172.14,   // ATR: at least 3% block fuel saving over the PW127M
+    crewCostPerKm: 1.39,
+    baseMaintenancePerWk: 12_600,   // ATR: 20% lower direct engine maintenance, 40% more time on wing
+    description: 'The ATR 72-600 with Pratt & Whitney PW127XT engines, delivered from 2025 (Air Corsica first). Same airframe, 3% less fuel and markedly cheaper engine maintenance, for a little more money.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/Aer_Lingus_Regional,_ATR_72-600_(EI-FAS)_%40_MAN,_Feb_2016.jpg?width=960',
+  },
 
   // ── BEECHCRAFT ──────────────────────────────────────────────────────────────
   {
@@ -2607,6 +2714,72 @@ export const AIRCRAFT_TYPES = [
     baseMaintenancePerWk: 14_000,
     description: 'Purpose-built regional freighter. The only freighter that can work a 4,400 ft strip, and the most fuel-efficient per tonne of any small freighter — built to fill on thin lanes where a converted jet would fly a third full.',
     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/ATR_ATR-72-201%28F%29%2C_West_Air_Europe_Cargo_AN1282441.jpg/960px-ATR_ATR-72-201%28F%29%2C_West_Air_Europe_Cargo_AN1282441.jpg',
+  },
+  {
+    id: 'atr42300f',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 42-300F',
+    manufacturer: 'ATR',
+    category: 'Freighter',
+    eis: 2000,
+    freighter: true,
+    seats: 0,
+    payloadTonnes: 5.5,
+    cruiseKmh: 490,
+    range: 1_100,
+    runwayFt: 3700,
+    weeklyLease: 11_000,
+    purchasePrice: 4500000,
+    fuelBurnPer100km: 146,
+    crewCostPerKm: 1.26,
+    baseMaintenancePerWk: 9_400,
+    deliveredAgeWeeks: 728,   // arrives 14y old — a used conversion, not a new build
+    description: 'Converted ATR 42-300 and -320 (bulk freighter, from 2000). The smallest dedicated freighter in the ATR family: the express feeder for towns too small for anything else.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/EI-FXA_ATR.42_(_F_)_FedEx_Feeder_(9541404082).jpg?width=960',
+  },
+  {
+    id: 'atr72200f',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 72-200F',
+    manufacturer: 'ATR',
+    category: 'Freighter',
+    eis: 2002,
+    freighter: true,
+    seats: 0,
+    payloadTonnes: 8,
+    cruiseKmh: 510,
+    range: 1_480,
+    runwayFt: 4600,
+    weeklyLease: 14_000,
+    purchasePrice: 6000000,
+    fuelBurnPer100km: 184,
+    crewCostPerKm: 1.39,
+    baseMaintenancePerWk: 15_000,
+    deliveredAgeWeeks: 728,   // arrives 14y old — a used conversion, not a new build
+    description: 'Converted first-generation ATR 72 (from 2002). The feeder freighter FedEx, Swiftair and many others fly in numbers: 8 tonnes for a fraction of a new -600F, at the cost of fuel and maintenance.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/ATR_ATR-72-201(F),_West_Air_Europe_Cargo_AN1282441.jpg?width=960',
+  },
+  {
+    id: 'atr72500f',
+    aiSkip: true,   // AI carriers never choose it (see header)
+    name: 'ATR 72-500F',
+    manufacturer: 'ATR',
+    category: 'Freighter',
+    eis: 2019,
+    freighter: true,
+    seats: 0,
+    payloadTonnes: 8.5,
+    cruiseKmh: 510,
+    range: 1_480,
+    runwayFt: 4000,
+    weeklyLease: 22_000,
+    purchasePrice: 10000000,
+    fuelBurnPer100km: 181,
+    crewCostPerKm: 1.39,
+    baseMaintenancePerWk: 14_500,
+    deliveredAgeWeeks: 624,   // arrives 12y old — a used conversion, not a new build
+    description: 'Converted ATR 72-500 (from 2019, with containers or pallets through a large cargo door on most). The modern second-hand alternative to a factory -600F.',
+    image: 'https://commons.wikimedia.org/wiki/Special:FilePath/ASL_Airlines,_EI-HAC,_ATR_72-500(F)_(53210450576).jpg?width=960',
   },
   {
     id: 'b737800bcf',

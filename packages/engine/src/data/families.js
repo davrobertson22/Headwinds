@@ -172,6 +172,8 @@ export const AIRCRAFT_FAMILY = {
 
   // ATR ─────────────────────────────────────────────────────────────────────
   atr42: 'atr', atr72: 'atr', atr72f: 'atr',
+  atr42300: 'atr', atr42500: 'atr', atr72200: 'atr', atr72500: 'atr', atr72xt: 'atr',
+  atr42300f: 'atr', atr72200f: 'atr', atr72500f: 'atr',   // P2F conversions of the earlier series
 
   // De Havilland Canada Dash 8 / Q series ───────────────────────────────────
   dhc8100: 'dhc_q', dhc8200: 'dhc_q', dhc8300: 'dhc_q', q400: 'dhc_q',

@@ -77,7 +77,7 @@ export const PRODUCTION_LINES = {
   ejet:            { name: 'Embraer E-Jet',               types: ['e190', 'erj170', 'e175', 'e195'] },
   ejet_e2:         { name: 'Embraer E-Jet E2',            types: ['e195e2', 'e175e2', 'e190e2'] },
   embraer_tp:      { name: 'Embraer Bandeirante / Brasilia', types: ['emb120', 'emb110'] },
-  atr:             { name: 'ATR 42 / 72',                 types: ['atr72', 'atr42', 'atr72f'] },
+  atr:             { name: 'ATR 42 / 72',                 types: ['atr72', 'atr42', 'atr72f', 'atr42300', 'atr42500', 'atr72200', 'atr72500', 'atr72xt'] },
   dash8:           { name: 'De Havilland Dash 8',         types: ['q400', 'dhc8100', 'dhc8200', 'dhc8300'] },
   dash7:           { name: 'De Havilland Dash 7',         types: ['dash7'] },
   dhc6:            { name: 'Twin Otter',                  types: ['dhc6'] },
@@ -157,6 +157,7 @@ export const PRODUCTION_LINES = {
   conv_dc8:        { name: 'DC-8 freighter conversions',   types: ['dc873f'], conversion: true },
   conv_ejet:       { name: 'E-Jet freighter conversions',  types: ['e190f'], conversion: true },
   conv_l188:       { name: 'Electra freighter conversions', types: ['l188f'], conversion: true },
+  conv_atr:        { name: 'ATR freighter conversions',    types: ['atr72500f', 'atr72200f', 'atr42300f'], conversion: true },
   // Conversion lines that only convert players' OWN frames (data/conversions.js):
   // the catalogue's freighter of the family is a factory build sold on its parent
   // line, so no orderable type sits here. `leadType` sets the spacing between one

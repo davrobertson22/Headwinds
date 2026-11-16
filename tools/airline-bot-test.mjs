@@ -417,7 +417,10 @@ await t('an aircraft whose routes do not cover what it costs has them closed', (
   mem = grownMem; let closed = new Set();
   for (let i = 1; i <= 3; i++) {
     const r = turn(st, mem, { params: { lossWeeks: 3 } }); mem = r.memory;
-    for (const a of r.actions) if (a.type === 'CLOSE_ROUTE') closed.add(a.routeId);
+    // Only this aircraft's routes: another tail in the grown airline may be
+    // failing on its own (with the ATR series in the catalogue the fixture
+    // airline has a second, thin Il-18 that the bot rightly cuts in week 2).
+    for (const a of r.actions) if (a.type === 'CLOSE_ROUTE' && mine.some((m) => m.id === a.routeId)) closed.add(a.routeId);
     if (i < 3) assert.equal(closed.size, 0, 'closed before the aircraft had its three weeks');
   }
   for (const r of mine) assert.ok(closed.has(r.id), 'a route of the loss-making aircraft was left open');
