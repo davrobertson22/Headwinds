@@ -246,6 +246,10 @@ export function CloseIcon({ size = 15 }) {
   return <LI size={size}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></LI>;
 }
 
+export function ArrowLeftIcon({ size = 15 }) {
+  return <LI size={size}><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></LI>;
+}
+
 export function CircleCheckIcon({ size = 15 }) {
   return <LI size={size}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></LI>;
 }

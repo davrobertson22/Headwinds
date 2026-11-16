@@ -236,6 +236,10 @@ td, th, .aircraft-stat-pill-value, .map-tip-val {
   z-index: 10;
 }
 .nav-tabs::-webkit-scrollbar { display: none; }
+/* ← Back to the previous screen (utils/pageHistory.js) */
+.nav-tab.nav-back { border-right: 1px solid var(--border); margin-right: 6px; padding-right: 14px; }
+.nav-tab.nav-back:disabled { opacity: .35; cursor: default; }
+.nav-tab.nav-back:disabled:hover { color: var(--text-muted); background: none; }
 
 /* Finance section tabs (top-level group switcher above the sub-view pills) */
 .fin-group-tabs {
@@ -2366,6 +2370,12 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
   background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .ms-panel-close:hover { border-color: var(--accent); }
+.ms-panel-back {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-strong);
+  background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.ms-panel-back:hover:not(:disabled) { border-color: var(--accent); }
+.ms-panel-back:disabled { opacity: .35; cursor: default; }
 .ms-panel-body { flex: 1; min-height: 0; }
 .ms-panel-body > .app-footer-inline { margin-bottom: -26px; }
 

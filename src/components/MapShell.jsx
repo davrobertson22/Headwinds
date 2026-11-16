@@ -10,6 +10,7 @@ import { peekNavFilter, requestNav } from '../utils/navIntent.js';
 import { peekDepartureBoardRequest } from './Departures.jsx';
 import { openAlertSettings } from '../utils/alertPrefs.js';
 import { useNavKeys, reachable, cyclePage, keyHint, mapGroupKey, MAP_KEY_DASHBOARD, MAP_KEY_GUIDE, MAP_KEY_SETTINGS } from '../utils/navKeys.js';
+import { BACK_KEY_LABEL } from '../utils/pageHistory.js';
 import { BellIcon } from './Icons.jsx';
 import { financeGroupOf } from './Finance.jsx';
 import {
@@ -18,7 +19,7 @@ import {
   FleetIcon, MarketIcon, PlaneIcon, CompetitionIcon, HandshakeIcon, TrendUpIcon, NewsIcon, GlobeIcon,
   OperationsIcon, UsersIcon, WrenchIcon, FuelIcon, GiftIcon, TicketIcon, RepIcon,
   LoyaltyIcon, SeatIcon, FinanceIcon, ScaleIcon, BanknoteIcon, BarChartIcon, ClipboardIcon,
-  CompassIcon, RocketIcon, BulbIcon,
+  CompassIcon, RocketIcon, BulbIcon, ArrowLeftIcon,
 } from './Icons.jsx';
 
 // ── Map-first layout ──────────────────────────────────────────────────────────
@@ -289,6 +290,7 @@ function AlertRail({ alerts, events, go, openPage, pageFor }) {
 export default function MapShell({
   state, remote, remoteChrome,
   tabs, tabLabel, activeTab, navigate, pages, footer,
+  canGoBack, backTarget, onBack,
   onAdvance, countdown, onBranding, onTour, onSave, onLoad, onNewGame, onClassic,
   discordHref,
 }) {
@@ -546,7 +548,7 @@ export default function MapShell({
           </>)}
           <div className="ms-menu-sep" />
           <div className="ms-menu-keys" data-nav-keys>
-            Keys: <kbd>1</kbd> Dashboard · <kbd>2</kbd>–<kbd>8</kbd> the bar below, again for its next page · <kbd>9</kbd> Guide · <kbd>0</kbd> Settings · <kbd>Esc</kbd> the map · <kbd>Delete</kbd> clears pop-ups
+            Keys: <kbd>1</kbd> Dashboard · <kbd>2</kbd>–<kbd>8</kbd> the bar below, again for its next page · <kbd>9</kbd> Guide · <kbd>0</kbd> Settings · <kbd>B</kbd> back to the previous screen · <kbd>Esc</kbd> the map · <kbd>Delete</kbd> clears pop-ups
           </div>
         </PopMenu>
       )}
@@ -557,6 +559,21 @@ export default function MapShell({
           <div className="ms-panel-backdrop" onClick={() => navigate(MAP_TAB)} />
           <section className="ms-panel" role="dialog" aria-label={group ? `${group.label}: ${pageLabel(page)}` : pageLabel(page)}>
             <header className="ms-panel-head">
+              {onBack && (
+                <button
+                  type="button"
+                  data-nav-back
+                  className="ms-panel-back"
+                  onClick={onBack}
+                  disabled={!canGoBack}
+                  aria-label="Back to the previous screen"
+                  title={canGoBack
+                    ? `Back to ${backTarget === MAP_TAB ? 'the map' : (pageLabel(backTarget) || 'the previous screen')}${keyHint(BACK_KEY_LABEL)}`
+                    : 'Back (nothing to go back to yet)'}
+                >
+                  <ArrowLeftIcon size={16} />
+                </button>
+              )}
               {ActiveIcon && <ActiveIcon size={16} />}
               <h2 className={groupPages.length > 1 ? 'has-tabs' : undefined}>{group ? group.label : pageLabel(page)}</h2>
               {groupPages.length > 1 && (

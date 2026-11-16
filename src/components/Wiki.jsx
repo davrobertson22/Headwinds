@@ -788,6 +788,7 @@ const WIKI = [
       { ul: [
         '**Number keys** open the main pages, numbered left to right as they appear on screen. In the map view: **1** Dashboard, **2**–**8** the bar along the bottom (Search, Network, Fleet and so on), **9** Guide, **0** Settings. In the classic layout: **1**, **2**, **3** … the menu bar, and **0** the pop-up alert settings.',
         'Press a group\'s number again to move to its next page: in the map view **3**, **3**, **3** steps through Routes, Gates and Hubs.',
+        '**B** goes back to the previous screen, the same as the **← Back** button (at the left of the menu bar in the classic layout, at the top left of an open page in the map view). Press it again to keep going back.',
         '**Esc** closes the open page and goes back to the map (map view). **Delete** clears every pop-up.',
         'Keys do nothing while you are typing in a box or while a dialog is open.',
       ] },
