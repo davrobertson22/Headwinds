@@ -11,7 +11,7 @@
 // Browser only (canvas). Nothing here runs on the server: LiveryPlane.jsx
 // renders a placeholder during SSR and paints in an effect.
 
-import { normalizeLivery } from '../data/livery.js';
+import { normalizeLivery, tailLogoBox } from '../data/livery.js';
 
 const PART = { fuselage: 0, fin: 1, wing: 2, winglet: 3, engine: 4, stab: 5 };
 const DRAW_ORDER = ['fin', 'wing', 'winglet', 'engine', 'stab'];   // lowest precedence first
@@ -128,6 +128,27 @@ export function titlesLayout(spec, livery) {
   return { logo: { x: t.x0, y: f.cy - f.size / 2, size: f.size }, x0: t.x0 + f.size + f.gap, x1: t.x1 };
 }
 
+// Trace a logo outline (LOGO_SHAPES) for a box at (x, y), sz square.
+function traceShape(ctx, shape, x, y, sz) {
+  ctx.beginPath();
+  if (shape === 'circle') ctx.arc(x + sz / 2, y + sz / 2, sz / 2, 0, Math.PI * 2);
+  else if (shape === 'rounded' && ctx.roundRect) ctx.roundRect(x, y, sz, sz, sz * 0.2);
+  else ctx.rect(x, y, sz, sz);
+}
+
+// Draw a logo into its box: `clip` { shape, bg } outlines an uploaded image
+// (and fills its tile colour behind it when bg is set); a preset arrives as
+// SVG that already carries its tile and shape, so it has no clip.
+function drawLogo(ctx, img, x, y, sz, clip) {
+  if (!clip || (clip.shape === 'square' && !clip.bg)) { ctx.drawImage(img, x, y, sz, sz); return; }
+  ctx.save();
+  traceShape(ctx, clip.shape, x, y, sz);
+  ctx.clip();
+  if (clip.bg) { ctx.fillStyle = clip.bg; ctx.fillRect(x, y, sz, sz); }
+  ctx.drawImage(img, x, y, sz, sz);
+  ctx.restore();
+}
+
 /**
  * Paint a livery onto a template.
  *   template  { img: HTMLImageElement (decoded), spec }  — see loadLiveryTemplate
@@ -138,9 +159,14 @@ export function titlesLayout(spec, livery) {
  *             on the forward fuselage when livery.logoOnFuselage
  *   bodyLogo  the fuselage's own version of it (a bare mark recoloured for
  *             the body paint); defaults to `logo`
+ *   logoClip  { shape, bg } for an uploaded logo: its outline (LOGO_SHAPES)
+ *             and, when it sits on its tile, the tile colour. null for a
+ *             preset, whose SVG already has both
+ * The fin logo goes where the livery's tailLogoX/Y/Scale put it and is cut
+ * to the fin, so a big or offset mark can run off the edge of the tail.
  * Returns an HTMLCanvasElement.
  */
-export function paintLivery(template, liveryIn, { width = 1200, titles = '', logo = null, bodyLogo = logo, fontFamily = 'Inter, system-ui, -apple-system, sans-serif' } = {}) {
+export function paintLivery(template, liveryIn, { width = 1200, titles = '', logo = null, bodyLogo = logo, logoClip = null, fontFamily = 'Inter, system-ui, -apple-system, sans-serif' } = {}) {
   const { img, spec } = template;
   const livery = normalizeLivery(liveryIn, liveryIn?.tail);
   const s = width / spec.size[0];
@@ -186,14 +212,38 @@ export function paintLivery(template, liveryIn, { width = 1200, titles = '', log
     else if (id === PART.engine) { pd[j] = engC[0]; pd[j + 1] = engC[1]; pd[j + 2] = engC[2]; }
     else if (id === PART.wing) { pd[j] = wingC[0]; pd[j + 1] = wingC[1]; pd[j + 2] = wingC[2]; }
   }
-  p.putImageData(P, 0, 0);
+  // Fin logo: drawn on its own layer, then blended in only where the part
+  // map says fin — whatever runs past the fin's edge (or behind the
+  // stabiliser) is cut off instead of spilling onto the body.
   if (logo && livery.logoOnTail && spec.logo) {
-    const sz = spec.logo.size * s;
-    if (sz >= 3) p.drawImage(logo, spec.logo.cx * s - sz / 2, spec.logo.cy * s - sz / 2, sz, sz);
+    const box = tailLogoBox(spec.logo, livery, b.noseX > b.tailX);
+    const sz = box.size * s;
+    const x = box.cx * s - sz / 2, y = box.cy * s - sz / 2;
+    const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(w, Math.ceil(x + sz)), y1 = Math.min(h, Math.ceil(y + sz));
+    if (sz >= 3 && x1 > x0 && y1 > y0) {
+      const lc = document.createElement('canvas'); lc.width = w; lc.height = h;
+      const lctx = lc.getContext('2d', { willReadFrequently: true });
+      drawLogo(lctx, logo, x, y, sz, logoClip);
+      const L = lctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      for (let yy = y0, k = 0; yy < y1; yy++) {
+        for (let xx = x0; xx < x1; xx++, k += 4) {
+          const a = L[k + 3];
+          if (!a) continue;
+          const i = yy * w + xx;
+          if (parts[i] !== PART.fin) continue;
+          const j = i * 4, f = a / 255;
+          pd[j]     = Math.round(L[k]     * f + pd[j]     * (1 - f));
+          pd[j + 1] = Math.round(L[k + 1] * f + pd[j + 1] * (1 - f));
+          pd[j + 2] = Math.round(L[k + 2] * f + pd[j + 2] * (1 - f));
+        }
+      }
+    }
   }
+  p.putImageData(P, 0, 0);
   if (bodyLogo && lay.logo) {
     const sz = lay.logo.size * s;
-    if (sz >= 3) p.drawImage(bodyLogo, lay.logo.x * s, lay.logo.y * s, sz, sz);
+    if (sz >= 3) drawLogo(p, bodyLogo, lay.logo.x * s, lay.logo.y * s, sz, logoClip);
   }
   const Pf = p.getImageData(0, 0, w, h).data;
 

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import LiveryPlane from './LiveryPlane.jsx';
+import LogoPlacement from './LogoPlacement.jsx';
 import { ACCENT_COLORS } from './SetupScreen.jsx';
 import { LIVERY_STYLES, LIVERY_STYLE_LABELS, LIVERY_WHITE, LIVERY_INK, normalizeLivery, normalizeHex } from '../data/livery.js';
 import { getLiveryTemplate, DEFAULT_LIVERY_TEMPLATE } from '../data/liveryTemplates.js';
@@ -112,14 +113,22 @@ export default function LiveryEditor({ livery, onChange, onReset, airlineName, l
         <div className="livery-opts">
           <label><input type="checkbox" checked={l.logoOnTail} onChange={e => set({ logoOnTail: e.target.checked })} /> Logo on the tail</label>
           <label><input type="checkbox" checked={l.logoOnFuselage} onChange={e => set({ logoOnFuselage: e.target.checked })} /> Logo on the fuselage</label>
-          {(l.logoOnTail || l.logoOnFuselage) && !logo?.customSrc && (
-            <label title="Paint the logo on its square tile, as it looks in the app, instead of the bare mark"><input type="checkbox" checked={l.logoTile} onChange={e => set({ logoTile: e.target.checked })} /> Logo on its tile</label>
+          {(l.logoOnTail || l.logoOnFuselage) && (
+            <label title={logo?.customSrc
+              ? 'Put your image on your tile colour instead of straight on the paint (a transparent PNG shows the paint through)'
+              : 'Paint the logo on its tile, as it looks in the app, instead of the bare mark'}><input type="checkbox" checked={l.logoTile} onChange={e => set({ logoTile: e.target.checked })} /> Logo on its tile</label>
           )}
           <label><input type="checkbox" checked={l.titlesOn} onChange={e => set({ titlesOn: e.target.checked })} /> Airline name on the fuselage</label>
           {onReset && !isDefault && (
             <button type="button" className="livery-link" onClick={onReset}>Reset to default</button>
           )}
         </div>
+        {(l.logoOnTail || l.logoOnFuselage) && (
+          <div style={{ marginTop: 10 }}>
+            <LogoPlacement livery={l} onChange={set}
+              showShape={l.logoTile || !!logo?.customSrc} showPlace={l.logoOnTail} />
+          </div>
+        )}
       </div>
     </div>
   );

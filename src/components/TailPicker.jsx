@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import TailFin, { LOGO_FREE_DESIGNS, tailTemplateSVG } from './TailFin.jsx';
+import LogoPlacement from './LogoPlacement.jsx';
 import { LIVERY_PALETTE } from './LiveryEditor.jsx';
 import { TAIL_DESIGNS, TAIL_DESIGN_LABELS, normalizeLivery } from '../data/livery.js';
 import { fileToTailDataURL, TAIL_UPLOAD_HINT, TAIL_W, TAIL_H } from '../utils/logoImage.js';
@@ -108,10 +109,15 @@ export default function TailPicker({ livery, logo, tail = null, airlineName, onC
           <button type="button" style={toggle(l.logoOnTail, logoFree)} aria-pressed={l.logoOnTail} data-tail-logo disabled={logoFree}
             onClick={() => set({ logoOnTail: !l.logoOnTail })}>Logo on the fin</button>
           <button type="button" style={toggle(l.logoTile, !l.logoOnTail || logoFree)} aria-pressed={l.logoTile} data-tail-tile disabled={!l.logoOnTail || logoFree}
-            title="Put the logo on its square tile, the way it looks in the app, instead of as a bare mark"
+            title={logo?.customSrc
+              ? 'Put your image on your tile colour instead of straight on the paint (a transparent PNG shows the tail colour through)'
+              : 'Put the logo on its tile, the way it looks in the app, instead of as a bare mark'}
             onClick={() => set({ logoTile: !l.logoTile })}>On its tile</button>
           {logoFree && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>the stripes carry this tail — no logo</span>}
         </div>}
+        {!usingUpload && l.logoOnTail && !logoFree && (
+          <LogoPlacement livery={l} onChange={set} showShape={l.logoTile || !!logo?.customSrc} showPlace />
+        )}
         <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
           Shown at your hubs on the maps, on the season podium and on your profile.
           The tail and design colours are your livery's{onOpenLivery ? <> — <button type="button" onClick={onOpenLivery}

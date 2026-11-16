@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { logoShapeRadius40 } from '../data/livery.js';
 
 // ── Background tile ───────────────────────────────────────────────────────────
 // By default every preset shares the same greyscale base so the user-chosen
@@ -379,9 +380,14 @@ export function resolveLogoSrc(src) {
  *   customSrc   — data/image URL of a user-uploaded logo; when set it
  *                 overrides the preset and is drawn clipped to the rounded
  *                 square (so it matches the look of the built-in logos)
+ *   shape       — 'square' | 'rounded' | 'circle': the outline in the
+ *                 40-unit box, overriding radius (the livery's logoShape,
+ *                 data/livery.js). `radius` is in px but is applied in the
+ *                 40-unit viewBox, so at big sizes it rounds to a circle —
+ *                 the livery passes a shape instead of relying on that
  *   style       — extra inline styles on the wrapping <svg>
  */
-export default function AirlineLogo({ id, size = 40, radius, accentColor, bgColor = null, customSrc: rawSrc, style, className }) {
+export default function AirlineLogo({ id, size = 40, radius, shape = null, accentColor, bgColor = null, customSrc: rawSrc, style, className }) {
   // A hosted logo that fails to load (deleted, offline) falls back to the
   // preset rather than leaving an empty square. Keyed on the src, so a new
   // upload gets a fresh attempt.
@@ -391,7 +397,7 @@ export default function AirlineLogo({ id, size = 40, radius, accentColor, bgColo
   const uid  = useId().replace(/:/g, '');
   const gid  = `lg-${id}-${uid}`;
   const logo = LOGO_MAP[id];
-  const r    = radius ?? Math.round(size * 0.2);
+  const r    = shape ? logoShapeRadius40(shape) : (radius ?? Math.round(size * 0.2));
 
   // ── User-uploaded custom logo ──────────────────────────────────────────────
   if (customSrc) {

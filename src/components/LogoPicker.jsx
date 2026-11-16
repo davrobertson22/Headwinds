@@ -150,7 +150,7 @@ export default function LogoPicker({
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-        {LOGO_UPLOAD_HINT} Transparent PNGs sit on your tile colour.
+        {LOGO_UPLOAD_HINT} Transparent PNGs keep their clear background: here they sit on your tile colour, and on the aircraft and tail the paint shows through.
       </div>
       {logoError && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--red)' }}>{logoError}</div>}
       {selectedTakenBy && (

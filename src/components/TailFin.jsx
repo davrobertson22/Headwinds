@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import AirlineLogo, { resolveLogoSrc } from './AirlineLogo.jsx';
-import { normalizeLivery } from '../data/livery.js';
+import { normalizeLivery, effectiveLogoShape, tailLogoBox } from '../data/livery.js';
 import { markColorOn } from '../utils/logoBranding.js';
 
 // The airline's tail logo, drawn the way the airline-tail charts draw them:
@@ -96,9 +96,13 @@ export default function TailFin({ livery, logo = {}, tail = null, height = 48, t
   const tailSrc = resolveLogoSrc(tail);
   const showMark = !tailSrc && l.logoOnTail && !LOGO_FREE_DESIGNS.has(l.tailDesign) && (custom || logo.id);
   // A preset sits on the paint as its bare mark, recoloured to read on the
-  // tail; an upload, or a livery that asks for the tile, gets its tile.
-  const tile = custom || l.logoTile;
-  const { cx, cy, size } = LOGO;
+  // tail, and an upload as the image itself (a transparent PNG's clear areas
+  // show the tail colour); a livery that asks for the tile gets its tile.
+  // The livery's offset and size move the mark (tailLogoBox); the fin clip
+  // below cuts off whatever runs past the edge.
+  const tile = l.logoTile;
+  const shape = effectiveLogoShape(l, tile);
+  const { cx, cy, size } = tailLogoBox(LOGO, l);
   const width = Math.round(height * FIN_ASPECT);
   return (
     <svg
@@ -117,7 +121,7 @@ export default function TailFin({ livery, logo = {}, tail = null, height = 48, t
         {showMark ? (
           <g transform={`translate(${cx - size / 2} ${cy - size / 2})`}>
             <AirlineLogo
-              id={logo.id} size={size} customSrc={custom || undefined}
+              id={logo.id} size={size} shape={shape} customSrc={custom || undefined}
               bgColor={tile ? logo.bgColor : 'none'}
               accentColor={tile ? logo.accentColor : markColorOn(l.tail, logo.accentColor)}
             />

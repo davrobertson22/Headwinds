@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as LogoModule from './AirlineLogo.jsx';
-import { liveryKey, liveryNeedsLogo, normalizeLivery } from '../data/livery.js';
+import { liveryKey, liveryNeedsLogo, normalizeLivery, effectiveLogoShape } from '../data/livery.js';
 import { markColorOn } from '../utils/logoBranding.js';
 import { liveryTemplateFor, getLiveryTemplate, DEFAULT_LIVERY_TEMPLATE } from '../data/liveryTemplates.js';
 import { paintLivery, loadLiveryTemplate, loadLogoImage } from '../utils/liveryPaint.js';
@@ -29,22 +29,30 @@ const resolveLogoSrc = LogoModule.resolveLogoSrc ?? ((src) => (typeof src === 's
 const painted = new Map();           // key → canvas (bounded)
 const PAINT_CACHE_MAX = 48;
 
-// → { tail, body } image sources (SVG markup or a URL), or null. Shared with
-// TailFin.jsx, which paints the fin's `tail` source.
+// → { tail, body, clip } — image sources (SVG markup or a URL) and, for an
+// upload, the outline and tile colour the painter cuts it to — or null.
+// An upload is painted bare by default, so a transparent PNG's clear areas
+// show the livery; livery.logoTile puts it on its tile colour. The livery's
+// logoShape outlines either (a tile defaults to a circle, the way it has
+// always painted: AirlineLogo's px radius rounded fully at this size).
 export function logoSrcsFor(logo, livery) {
   if (!logo) return null;
+  const shape = effectiveLogoShape(livery, livery.logoTile);
   const custom = resolveLogoSrc(logo.customSrc);
-  if (custom) return { tail: custom, body: custom };
+  if (custom) {
+    const bg = livery.logoTile ? (/^#[0-9a-f]{6}$/i.test(logo.bgColor ?? '') ? logo.bgColor : '#15202f') : null;
+    return { tail: custom, body: custom, clip: { shape, bg } };
+  }
   if (!logo.id) return null;
   if (livery.logoTile) {
-    const tile = renderToStaticMarkup(<AirlineLogo id={logo.id} accentColor={logo.accentColor} bgColor={logo.bgColor ?? null} size={128} radius={26} />);
-    return { tail: tile, body: tile };
+    const tile = renderToStaticMarkup(<AirlineLogo id={logo.id} accentColor={logo.accentColor} bgColor={logo.bgColor ?? null} size={128} shape={shape} />);
+    return { tail: tile, body: tile, clip: null };
   }
   const bare = (on) => renderToStaticMarkup(
     <AirlineLogo id={logo.id} accentColor={markColorOn(on, logo.accentColor)} bgColor="none" size={128} />,
   );
   const tail = bare(livery.tail);
-  return { tail, body: livery.fuselage === livery.tail ? tail : bare(livery.fuselage) };
+  return { tail, body: livery.fuselage === livery.tail ? tail : bare(livery.fuselage), clip: null };
 }
 
 const srcKey = (src) => (src ? `${src.length}:${src.slice(0, 64)}:${src.slice(-160)}` : '');
@@ -59,6 +67,8 @@ export default function LiveryPlane({ livery, titles = '', logo = null, category
   const logoSrcs = liveryNeedsLogo(norm) ? logoSrcsFor(logo, norm) : null;
   const tailSrc = logoSrcs?.tail ?? null;
   const bodySrc = logoSrcs?.body ?? null;
+  const clip = logoSrcs?.clip ?? null;
+  const clipKey = clip ? `${clip.shape}:${clip.bg ?? ''}` : '';
   const name = norm.titlesOn ? String(titles ?? '').trim() : '';
 
   useEffect(() => {
@@ -66,7 +76,7 @@ export default function LiveryPlane({ livery, titles = '', logo = null, category
     let cancelled = false;
     const dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
     const px = Math.max(16, Math.round(width * dpr));
-    const key = `${spec.id}|${px}|${lkey}|${name}|${srcKey(tailSrc)}|${srcKey(bodySrc)}`;
+    const key = `${spec.id}|${px}|${lkey}|${name}|${srcKey(tailSrc)}|${srcKey(bodySrc)}|${clipKey}`;
     (async () => {
       try {
         let canvas = painted.get(key);
@@ -75,7 +85,7 @@ export default function LiveryPlane({ livery, titles = '', logo = null, category
             loadLiveryTemplate(spec), loadLogoImage(tailSrc), bodySrc === tailSrc ? null : loadLogoImage(bodySrc),
           ]);
           if (cancelled) return;
-          canvas = paintLivery(tpl, norm, { width: px, titles: name, logo: logoImg, bodyLogo: bodyImg ?? logoImg });
+          canvas = paintLivery(tpl, norm, { width: px, titles: name, logo: logoImg, bodyLogo: bodyImg ?? logoImg, logoClip: clip });
           if (painted.size >= PAINT_CACHE_MAX) painted.delete(painted.keys().next().value);
           painted.set(key, canvas);
         }
@@ -89,7 +99,7 @@ export default function LiveryPlane({ livery, titles = '', logo = null, category
       }
     })();
     return () => { cancelled = true; };
-  }, [spec.id, width, lkey, name, tailSrc, bodySrc]);
+  }, [spec.id, width, lkey, name, tailSrc, bodySrc, clipKey]);
 
   return (
     <canvas
