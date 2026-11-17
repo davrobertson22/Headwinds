@@ -101,16 +101,14 @@ const DEFAULT_SEATS = 170;
 // ground (tools/rival-capacity-flying-test.mjs).
 //
 // The rule mirrors the tick's own. The month is the rival's own calendar, as
-// tickPrep derives it. An aircraft whose downtime ends this week DOES fly this
-// week — tickPrep runs the grounding and heavy-check countdowns before the
-// revenue sim — so it counts. A route covered by a reserve already names the
-// reserve as its aircraft, so it is judged on the tail actually flying it.
+// tickPrep derives it. An aircraft out of service at the top of the week stays
+// out for all of it, its last week of downtime included — the countdown runs
+// after the week is flown (finishDowntimeWeek) — so it does not count. A route
+// covered by a reserve already names the reserve as its aircraft, so it is
+// judged on the tail actually flying it.
 function flyingThisWeek(state) {
   const month = weekToGameDate(state.week ?? 1).monthIndex;
   const fleet = new Map((state.fleet ?? []).map((a) => [a.id, a]));
-  const backThisWeek = (a) =>
-    (a.status === 'grounded' && (a.groundedWeeksLeft ?? 1) <= 1)
-    || (a.status === 'maintenance' && (a.checkWeeksLeft ?? 1) <= 1);
   // Tails the tick parks for want of pilots or cabin crew ("No crew" on the
   // Fleet page) — computed exactly as tickPrep computes crewGroundedIds, from
   // the same fleet, labor and assigned-route set, so the tail a rival sees
@@ -124,7 +122,7 @@ function flyingThisWeek(state) {
     if (!isRouteActive(route, month)) return false;
     const aircraft = fleet.get(route.aircraftId);
     if (!aircraft || aircraft.status === 'retired') return false;
-    if (isOutOfService(aircraft) && !backThisWeek(aircraft)) return false;
+    if (isOutOfService(aircraft)) return false;
     if (crewParked?.has(aircraft.id)) return false;
     // A rival state not yet through the payload-range migration (it runs on that
     // player's next action or tick): every route it has is a pre-model route.

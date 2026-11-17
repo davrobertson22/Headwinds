@@ -85,9 +85,11 @@ await test('a rival whose aircraft is in a heavy check puts no seats on the pair
   assert.deepEqual(seesBob(v), { spec: false, route: false });
 });
 
-await test('…but an aircraft whose downtime ends this week flies this week, so it counts', () => {
-  assert.deepEqual(seesBob(aliceView(bobWith({ status: 'grounded', groundedWeeksLeft: 1 }))), { spec: true, route: true });
-  assert.deepEqual(seesBob(aliceView(bobWith({ status: 'maintenance', checkWeeksLeft: 1, checkType: 'A' }))), { spec: true, route: true });
+await test('…and nor does one on its LAST week of downtime: that week is served, not flown', () => {
+  // Since 2026-11-16 the countdown runs after the week is flown, so "1 week
+  // left" means out for all of this week (tools/downtime-weeks-test.mjs).
+  assert.deepEqual(seesBob(aliceView(bobWith({ status: 'grounded', groundedWeeksLeft: 1 }))), { spec: false, route: false });
+  assert.deepEqual(seesBob(aliceView(bobWith({ status: 'maintenance', checkWeeksLeft: 1, checkType: 'C' }))), { spec: false, route: false });
 });
 
 await test('a dormant seasonal route puts no seats on the pair; an in-season one does', () => {

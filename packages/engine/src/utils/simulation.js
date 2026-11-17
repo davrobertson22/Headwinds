@@ -1831,8 +1831,15 @@ export function aircraftUtilization({
 //      peak month is already down to one weekly flight.
 //   4. Nothing on a tail that is within the cap is touched, ever.
 
-/** Save-schema version for the over-cap schedule trim. Bump to re-run. */
-export const SCHEDULE_TRIM_VERSION = 1;
+/**
+ * Save-schema version for the over-cap schedule trim. Bump to re-run.
+ *   1 — the original one-off trim.
+ *   2 — 2026-11-16 cruise-speed corrections: about 30 types got slower (DC-3,
+ *       Twin Otter, Caravan, Yak-40, 737-100/-200...), so their block time
+ *       grew and a schedule that fitted the cap may no longer fit. The server
+ *       tick runs this on every airline blob, so live worlds are covered.
+ */
+export const SCHEDULE_TRIM_VERSION = 2;
 
 /** How many trim notices a save keeps (they are the player's durable receipt). */
 export const SCHEDULE_TRIM_NOTICE_CAP = 50;
@@ -2018,7 +2025,11 @@ export function trimOverCapSchedules(state, { capHours = MAX_WEEKLY_BLOCK_HOURS 
 export function applyScheduleTrimMigration(state, opts = {}) {
   if (!state) return state;
   if ((state.scheduleTrimVersion ?? 0) >= SCHEDULE_TRIM_VERSION) return state;
-  const res = trimOverCapSchedules(state, opts);
+  // The airline's OWN cap: a new-world-restrictions airline is trimmed to 100
+  // hours, not 140. Version 1 ran before 100-hour worlds existed, so the fixed
+  // 140 never mattered; version 2 (slower cruise speeds) would otherwise leave
+  // a 100-hour tail over its cap.
+  const res = trimOverCapSchedules(state, { capHours: maxWeeklyBlockHoursFor(state), ...opts });
   const stamped = { ...state, scheduleTrimVersion: SCHEDULE_TRIM_VERSION };
   if (!res.changed) return stamped;
   return {
@@ -4677,13 +4688,11 @@ export function applyReserveCovers({ fleet = [], routes = [], cargoRoutes = [], 
 }
 
 /**
- * One week of the downtime countdown, exactly as tickPrep runs it at the top of
- * ADVANCE_WEEK. Split out so a PREVIEW can ask "what will be flying next week?"
- * with the tick's own arithmetic instead of a second opinion.
- *
- * The maintenance branch deliberately does NOT run completeCheck() — the
- * outlook only needs to know whether the tail is back in service, not to reset
- * its check ledger.
+ * One week of the downtime countdown, with the tick's arithmetic
+ * (finishDowntimeWeek in utils/tickPrep.js, which the reducer runs at the END of
+ * ADVANCE_WEEK, after the week was flown without the tail). Kept for callers
+ * that count weeks of downtime off; it deliberately does NOT run completeCheck()
+ * or a conversion, so it only answers "is it back in service yet?".
  */
 export function advanceDowntimeOneWeek(a, hasRoute = false) {
   if (!a || a.status === 'retired') return a;
@@ -4721,13 +4730,20 @@ export function advanceDowntimeOneWeek(a, hasRoute = false) {
  *      countdown returns it to service before the reserve pass runs, and it
  *      flies its own routes. Nothing is idle, so warning about it is noise.
  *
- * This runs the real pass — countdowns, then applyReserveCovers — against the
- * projected fleet and reports what actually happens, per aircraft id:
+ * (Both readings changed on 2026-11-16: downtime is now counted down AFTER the
+ * week is flown and the tick runs the reserve pass at its end as well, so a tail
+ * that breaks down or starts a check in the tick is covered at once, and one on
+ * its last week of downtime is out — and covered — for that week too. A tail
+ * the player sends into the shop between ticks is covered from next week, its
+ * first lost week.)
+ *
+ * This runs the tick's top-of-week reserve pass against the fleet as it stands
+ * and reports what actually happens, per aircraft id:
  *
  *   coveredNow   routes a reserve is flying for it right now
  *   coversNext   routes a reserve will be flying for it after the next tick
  *   ownRoutes    routes still sitting with the broken tail right now
- *   returning    true when the countdown puts it back in service next tick
+ *   lastWeek     true when next week is its last week out of service
  *   reserves     names/ids of the reserves that will cover it
  *   reason       null | 'no-reserve' | 'hours-full' — why any gap is a gap
  *
@@ -4740,12 +4756,11 @@ export function coverOutlookByAircraft({
   const routedIds = new Set();
   for (const r of ops) routedIds.add(r.aircraftId);
   const hasRoute = (id) => routedIds.has(id);
-  const nextFleet = fleet.map(a => advanceDowntimeOneWeek(a, hasRoute(a.id)));
+  // No countdown first: a tail out of service now is out for all of next week.
   const pass = applyReserveCovers({
-    fleet: nextFleet, routes, cargoRoutes, hubs, absWeek, routeRevenues,
+    fleet, routes, cargoRoutes, hubs, absWeek, routeRevenues,
   });
 
-  const nextById = new Map(nextFleet.map(a => [a.id, a]));
   const fleetById = firstById(fleet);
   const nameOf   = (id) => {
     const a = fleetById.get(id);
@@ -4764,7 +4779,7 @@ export function coverOutlookByAircraft({
       coveredNow,
       ownRoutes,
       coversNext:  coversNext.length,
-      returning:   !isOutOfService(nextById.get(a.id) ?? a),
+      lastWeek:    !isOutOfService(advanceDowntimeOneWeek(a, hasRoute(a.id))),
       reserves:    [...new Set(coversNext.map(r => nameOf(r.aircraftId)))],
       reason:      gap?.reason ?? null,
       revenueAtRisk: gap?.revenueAtRisk ?? 0,

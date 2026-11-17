@@ -170,55 +170,37 @@ export function prepareWeek(state, {
   const gameDate  = { week: state.week, month: gameMonth,
                       absWeek: absoluteWeek(state.year ?? 1, state.week ?? 1) };
 
-  // ── Fleet: age the grounding and heavy-check countdowns ────────────────────
-  // Runs BEFORE the revenue sim so an airframe whose last week of downtime is
-  // this one flies this week and earns. This is the line the projection was
-  // missing: in the raw state that tail is still 'maintenance'/'grounded', so a
-  // forecast built on it writes off every route the aircraft operates.
+  // ── Fleet: who is out of service THIS week ─────────────────────────────────
+  // The downtime countdown no longer runs here. It used to, BEFORE the revenue
+  // sim, so a tail on its last week of downtime came back and flew that week:
+  // every check and grounding cost one week less than it said. A 1-week C check
+  // was free, a reserve never had anything to cover, and "grounded for 3 weeks"
+  // meant 2 (Discord: djak2103, VodkaOnFire 2026-11-16). Now a tail out of
+  // service at the top of the week stays out for the whole week, and
+  // finishDowntimeWeek counts it down AFTER the week is flown (reducer, aging
+  // step). A projection built on this state therefore needs no countdown at all.
+  //
+  // completedChecks lists the checks whose LAST week this is: they complete at
+  // the end of this tick, and the report and toasts announce them this tick.
   const completedChecks = (state.fleet ?? [])
     .filter(a => a.status === 'maintenance' && (a.checkWeeksLeft ?? 1) <= 1)
     .map(a => ({ id: a.id, name: a.name, tailNumber: a.tailNumber ?? '', checkType: a.checkType ?? 'C', forced: !!a.checkForced,
                  ...(a.checkType === 'P2F' ? { toTypeId: a.pendingConversion?.toTypeId ?? null } : {}) }));
 
-  // Freighter conversions finishing this week take their new name from the
-  // fleet as it stands, earlier finishers included, so two A321s converted in
-  // the same week come out #3 and #4 rather than both #3.
-  const namingFleet = [...(state.fleet ?? [])];
-  // One pass over the route tables, not one per tail (fleet × routes).
-  const routedIds = new Set();
-  for (const r of (state.routes ?? [])) routedIds.add(r.aircraftId);
-  for (const r of (state.cargoRoutes ?? [])) routedIds.add(r.aircraftId);
-  const tickedFleetPre = (state.fleet ?? []).map((a, i) => {
-    const hasRoute = routedIds.has(a.id);
-    // Self-heal (saves broken before the reducer guard shipped): several route
-    // actions used to rewrite `status` from the route table alone, so closing —
-    // or transferring away — a broken tail's last flight left groundedWeeksLeft
-    // intact on an aircraft this countdown no longer watched. The AOG simply
-    // stopped existing. Any tail still carrying weeks of downtime is grounded,
-    // whatever its status was last set to.
-    const stuckGrounded = (a.groundedWeeksLeft ?? 0) > 0
-      && a.status !== 'grounded' && a.status !== 'maintenance' && a.status !== 'retired';
-    if (a.status === 'grounded' || stuckGrounded) {
-      const weeksLeft = (a.groundedWeeksLeft ?? 1) - 1;
-      if (weeksLeft <= 0) return { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0, groundedReason: null };
-      return { ...a, status: 'grounded', groundedWeeksLeft: weeksLeft };
-    }
-    if (a.status === 'maintenance') {
-      const left = (a.checkWeeksLeft ?? 1) - 1;
-      if (left <= 0 && a.checkType === 'P2F' && a.pendingConversion) {
-        const done = completeConversion(a, curAbsWeek, hasRoute, { fleet: namingFleet, pendingOrders: state.pendingOrders ?? [] });
-        namingFleet[i] = done;
-        return done;
-      }
-      if (left <= 0) return completeCheck(a, curAbsWeek, hasRoute);
-      return { ...a, checkWeeksLeft: left };
-    }
-    return a;
-  });
+  // Self-heal (saves broken before the reducer guard shipped): several route
+  // actions used to rewrite `status` from the route table alone, so closing —
+  // or transferring away — a broken tail's last flight left groundedWeeksLeft
+  // intact on an aircraft the countdown no longer watched. Any tail still
+  // carrying weeks of downtime is grounded, whatever its status was last set to.
+  const tickedFleetPre = (state.fleet ?? []).map(a => (isStuckGrounded(a) ? { ...a, status: 'grounded' } : a));
 
   // ── Reserve aircraft: return finished covers, dispatch new ones ─────────────
-  // After the countdowns (an original that recovered takes its routes back) and
-  // before the revenue sim (a new cover earns from its first week).
+  // Before the revenue sim, so a cover earns from its first week. The tick also
+  // runs this pass at its END (reducer), where most covers now start and end:
+  // a tail that broke down or went into a check during the tick is covered
+  // before next week, and one whose downtime just ended takes its routes back.
+  // Here it picks up what happened between ticks — a check the player started,
+  // a cabin refit, a reserve stationed or a route moved.
   const lastRouteRevenues = state.financialHistory?.[state.financialHistory.length - 1]?.routeRevenues ?? {};
   const coverPass = applyReserveCovers({
     fleet:         tickedFleetPre,
@@ -377,4 +359,41 @@ export function prepareWeek(state, {
       absWeek:      curAbsWeek,
     },
   };
+}
+
+
+/** A tail whose status lost track of a grounding it still owes (see prepareWeek). */
+function isStuckGrounded(a) {
+  return (a?.groundedWeeksLeft ?? 0) > 0
+    && a.status !== 'grounded' && a.status !== 'maintenance' && a.status !== 'retired';
+}
+
+/**
+ * One week of downtime has been served: count it down, and hand the airframe
+ * back if that was its last week. Runs at the END of the tick, after the week
+ * was flown without it, so a check or grounding of k weeks costs exactly k weeks
+ * of flying. A heavy check resets its ledger (completeCheck); a freighter
+ * conversion becomes its new type (completeConversion, which numbers the new
+ * tail against `naming.fleet` — pass the fleet with earlier finishers already
+ * swapped in so two conversions finishing together come out #3 and #4).
+ *
+ * In-service and retired tails come back unchanged.
+ */
+export function finishDowntimeWeek(a, { absWeek, hasRoute = false, naming = null } = {}) {
+  if (!a || a.status === 'retired') return a;
+  if (a.status === 'grounded' || isStuckGrounded(a)) {
+    const left = (a.groundedWeeksLeft ?? 1) - 1;
+    return left <= 0
+      ? { ...a, status: hasRoute ? 'assigned' : 'idle', groundedWeeksLeft: 0, groundedReason: null }
+      : { ...a, status: 'grounded', groundedWeeksLeft: left };
+  }
+  if (a.status === 'maintenance') {
+    const left = (a.checkWeeksLeft ?? 1) - 1;
+    if (left <= 0 && a.checkType === 'P2F' && a.pendingConversion) {
+      return completeConversion(a, absWeek, hasRoute, naming ?? { fleet: [], pendingOrders: [] });
+    }
+    if (left <= 0) return completeCheck(a, absWeek, hasRoute);
+    return { ...a, checkWeeksLeft: left };
+  }
+  return a;
 }

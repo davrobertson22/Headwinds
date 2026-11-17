@@ -36,7 +36,7 @@ import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, ca
          CAPITAL, ipoDiscount, offeringDiscount, dividendPerShare, buybackRefusal,
          founderSaleProceeds, offeringPoolLimit, isSameLocation } from './utils/market.js';
 import { fleetWeeklyDepreciation } from './utils/financeProjection.js';
-import { prepareWeek } from './utils/tickPrep.js';
+import { prepareWeek, finishDowntimeWeek } from './utils/tickPrep.js';
 import { getAircraftType, eraDeliveredAgeWeeks, aircraftAvailability, effectivePurchasePrice, eraPurchasePrice, eraWeeklyLease, setEraPriceYear, setLeaseCycleMult, orderDiscount, buyDiscount, AIRCRAFT_TYPES,
          leaseTermRateMultiplier, DEFAULT_LEASE_TERM_WEEKS, LEASE_DEPOSIT_WEEKS,
          lessorSupplies, leaseOrderBookCap, LESSOR_EIS_CUTOFF, isVintage, lessorFirstYear, LESSOR_MIN_AGE_YEARS,
@@ -6394,7 +6394,14 @@ function reducer(state, action) {
         return { factor: Math.min(hubF, mult), weeksSaved: ct === 'D' ? mf.dWeeksSaved : mf.cWeeksSaved, base: mf.code };
       };
 
-      const agedFleet = tickedFleet.map(a => {
+      // Downtime is counted down HERE, after the week was flown without the
+      // tail (utils/tickPrep.js, finishDowntimeWeek): a check or grounding of k
+      // weeks costs exactly k weeks of flying. Freighter conversions finishing
+      // together are numbered against the fleet with earlier finishers swapped
+      // in, so two A321s converted the same week come out #3 and #4.
+      const downtimeNaming = { fleet: [...tickedFleet], pendingOrders: state.pendingOrders ?? [] };
+      const routedThisWeek = new Set([...coverPass.routes, ...coverPass.cargoRoutes].map(r => r.aircraftId));
+      const agedFleet = tickedFleet.map((a, i) => {
         // Written off this week — the airframe leaves the fleet entirely.
         if (writeOffIds.has(a.id)) return null;
         let aged = { ...a, ageWeeks: (a.ageWeeks ?? 0) + agingRate };
@@ -6402,6 +6409,10 @@ function reducer(state, action) {
         if (failedIds.has(a.id)) {
           const failure = newFailures.find(f => f.aircraftId === a.id);
           return { ...aged, status: 'grounded', groundedWeeksLeft: failure.weeksGrounded, groundedReason: 'failure' };
+        }
+        if (isOutOfService(a)) {
+          aged = finishDowntimeWeek(aged, { absWeek: curAbsWeek, hasRoute: routedThisWeek.has(a.id), naming: downtimeNaming });
+          downtimeNaming.fleet[i] = aged;
         }
         // Tick lease countdown for leased aircraft
         if (a.ownershipType === 'lease' && (a.leaseRemainingWeeks ?? 0) > 0) {
@@ -6588,10 +6599,9 @@ function reducer(state, action) {
       ];
 
       // 5. Build recovery toasts (aircraft that just came back from grounding).
-      //    Detect from the PRE-tick fleet (state.fleet): an aircraft recovers this
-      //    week if it was grounded with ≤1 week left, since tickedFleetPre has
-      //    already flipped it back to assigned/idle. Reading tickedFleet here would
-      //    instead match aircraft that are STILL grounded for one more week.
+      //    An aircraft recovers this tick if it started the week grounded with
+      //    ≤1 week left: that week has now been served (finishDowntimeWeek in the
+      //    aging step), so it is back in service for next week.
       const recoveredAircraft = state.fleet
         .filter(a => a.status === 'grounded' && (a.groundedWeeksLeft ?? 1) <= 1)
         .filter(a => !failedIds.has(a.id)); // don't re-announce ones that just failed again
@@ -6616,23 +6626,23 @@ function reducer(state, action) {
       // broken tails that were NOT already listed as gapped last week.
       const prevGapIds = new Set((state.lastReport?.coverage?.gaps ?? []).map(g => g.original?.id));
       const fmtUsd = n => (n ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-      const coverToasts = [
-        ...coverPass.coversStarted.map(c => ({
+      const coverToastsFor = (pass, skipGapIds) => [
+        ...pass.coversStarted.map(c => ({
           type: 'info', icon: '🛡️', duration: 7000,
           title: `🛡️ Reserve dispatched — ${c.reserve.name}`,
           message: `${c.reserve.tailNumber || c.reserve.name} is covering ${c.routes} route${c.routes !== 1 ? 's' : ''} for ${c.original.name} while it's out of service.`,
         })),
-        ...coverPass.coversEnded.map(c => ({
+        ...pass.coversEnded.map(c => ({
           type: 'success', icon: '🛡️', duration: 5000,
           title: `🛡️ Cover complete — ${c.reserve.name}`,
           message: `${c.original.name} is back; ${c.reserve.tailNumber || c.reserve.name} returned ${c.routes} route${c.routes !== 1 ? 's' : ''} and is standing by again.`,
         })),
-        ...coverPass.coversPermanent.map(c => ({
+        ...pass.coversPermanent.map(c => ({
           type: 'info', icon: '🛡️', duration: 7000,
           title: `🛡️ Cover made permanent — ${c.reserve.name}`,
           message: `${c.original.name} left the fleet mid-cover, so ${c.reserve.name} keeps its ${c.routes} route${c.routes !== 1 ? 's' : ''}.`,
         })),
-        ...coverPass.coverGaps.filter(g => !prevGapIds.has(g.original?.id)).map(g => ({
+        ...pass.coverGaps.filter(g => !skipGapIds.has(g.original?.id)).map(g => ({
           type: 'warning', icon: '🛡️', duration: 9000,
           title: `🛡️ No cover for ${g.original.name}`,
           message: `${g.routes} route${g.routes !== 1 ? 's' : ''} (~${fmtUsd(g.revenueAtRisk)}/wk) uncovered — ${g.reason === 'no-reserve'
@@ -6640,6 +6650,7 @@ function reducer(state, action) {
             : 'your matching reserve is out of weekly block hours'}.`,
         })),
       ];
+      const coverToasts = coverToastsFor(coverPass, prevGapIds);
       if (leaseAutoRenewed.length > 0) {
         const n = leaseAutoRenewed.length;
         const yrs = leaseAutoRenewSetting(state).addWeeks / 52;
@@ -7836,6 +7847,28 @@ function reducer(state, action) {
         newSlotSqueeze = squeeze;
       }
 
+      // ── Reserve aircraft, end of tick ────────────────────────────────────
+      // Downtime now ends AFTER the week is flown, and breakdowns and heavy
+      // checks begin here too, so this is where covers really start and end:
+      // a tail that came back takes its routes home now (not still on the
+      // reserve all next week), and one that broke down or went into the shop
+      // is covered before its first lost week. The same pure pass as the top of
+      // the tick, which then only has to catch what happens between ticks.
+      const endCover = applyReserveCovers({
+        fleet:         finalFleet,
+        routes:        finalSqueezeRoutes,
+        cargoRoutes:   finalSqueezeCargo,
+        hubs:          hubsAfterBuild ?? state.hubs ?? {},
+        absWeek:       absoluteWeek(newYear, newWeek),
+        routeRevenues: historyEntry.routeRevenues ?? {},
+      });
+      newToasts.push(...coverToastsFor(endCover,
+        new Set([...prevGapIds, ...coverPass.coverGaps.map(g => g.original?.id)])));
+      // The week's gaps for the debrief: routes that went unflown this week
+      // (top pass) plus those that will next week (end pass), once per tail.
+      const gapsAfterTick = [...endCover.coverGaps,
+        ...coverPass.coverGaps.filter(g => !endCover.coverGaps.some(e => e.original?.id === g.original?.id))];
+
       // A travel partner walking out is a public falling-out (data/travelPartners.js).
       forcedRepHit += report.travelPartnerRepHit ?? 0;
 
@@ -7868,10 +7901,10 @@ function reducer(state, action) {
         week:              newWeek,
         year:              newYear,
         portfolio:         newPortfolio,
-        fleet:             finalFleet,
+        fleet:             endCover.fleet,
         reputationPenalty: newReputationPenalty,
-        routes:            finalSqueezeRoutes,
-        cargoRoutes:       finalSqueezeCargo,
+        routes:            endCover.routes,
+        cargoRoutes:       endCover.cargoRoutes,
         // Gate scarcity only — spread stays empty elsewhere so non-scarcity
         // (and solo) states are byte-identical to before this feature.
         ...(state.gateScarcityWorld ? {
@@ -7897,7 +7930,7 @@ function reducer(state, action) {
           // operating cost so that (revenueEffective − totalCostAll) reconciles to cashDelta.
           revenueEffective: Math.round(report.totalRevenue + eventDemandAdj - strikeRevenueLoss),
           totalCostAll: report.totalCost + totalLoanPayments + leaseRedeliveryCost + seasonalReactivationCost + corporateTax + maintCheckSpend + aogSpend,
-          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, leaseDepositReturned: leaseDepositRefund, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, strikeVariableSaved, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, mro: { jobs: mroJobs, aogSpend, aogInsurance, baseCosts: report.totalMroBaseCosts ?? 0, contractSavings: report.mroContractSavings ?? 0, opened: baseBuild.opened, upgraded: baseBuild.upgraded }, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: coverPass.coversStarted, ended: coverPass.coversEnded, permanent: coverPass.coversPermanent, gaps: coverPass.coverGaps }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
+          loanPayments: totalLoanPayments, loanInterest: totalLoanInterest, leaseRedelivery: leaseRedeliveryCost, leaseDepositReturned: leaseDepositRefund, seasonalReactivation: seasonalReactivationCost, corporateTax, eventDemandAdj: Math.round(eventDemandAdj), strikeLoss: strikeRevenueLoss, strikeVariableSaved, competitorEvents, newEvents, expiredEvents, mechanicalFailures: newFailures, mro: { jobs: mroJobs, aogSpend, aogInsurance, baseCosts: report.totalMroBaseCosts ?? 0, contractSavings: report.mroContractSavings ?? 0, opened: baseBuild.opened, upgraded: baseBuild.upgraded }, maintenanceChecks: { started: checksStarted, forced: checksForced, completed: completedChecks, spend: maintCheckSpend, repHit: forcedRepHit }, coverage: { started: [...coverPass.coversStarted, ...endCover.coversStarted], ended: [...coverPass.coversEnded, ...endCover.coversEnded], permanent: [...coverPass.coversPermanent, ...endCover.coversPermanent], gaps: gapsAfterTick }, fuelIndex: currentFuelIndex, fuelMultiplier, marketIndex: currentMarketIndex, marketFactor,
       dividend: dividendPaid > 0
         ? { perShare: dividendPerSh, total: dividendPaid, payableShares: divPayable }
         : null, loyaltyMemberDelta: updatedLoyalty.members - currentLoyalty.members, loyaltyMembersTotal: updatedLoyalty.members,
@@ -7986,7 +8019,7 @@ function reducer(state, action) {
         victoryStats:        (rivalsGone && !state.gameWon) ? {
           marketCap:   newMarketCap ?? state.marketCap ?? null,
           cash:        cashAfterDividend + objectiveCashBonus + mandateCashBonus,
-          fleetCount:  finalFleet.filter(a => a.status !== 'retired').length,
+          fleetCount:  endCover.fleet.filter(a => a.status !== 'retired').length,
           routeCount:  finalRoutes.length,
           airports:    Object.values(state.gates ?? {}).filter(n => n > 0).length,
           weeksPlayed: (newYear - 1) * 52 + newWeek,

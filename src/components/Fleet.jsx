@@ -53,6 +53,7 @@ import {
   canConvertToFreighter, conversionFor, conversionRefusal, startConversion, completeConversion, inShopLabel,
 } from '../../packages/engine/src/data/conversions.js';
 import { airframeNAV, effectiveMaintAgeWeeks } from '../../packages/engine/src/data/maintenance.js';
+import { backdropDismiss } from '../utils/backdropDismiss.js';
 
 const CAT_COLORS = {
   'Turboprop':    '#ffb43d',
@@ -287,7 +288,7 @@ function TransferRoutesModal({ aircraft, onClose }) {
   }
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal" style={{ width: 'min(520px, 94vw)' }}>
         <div className="saveload-header">
           <h2 style={{ margin: 0, fontSize: 17 }}>Transfer Routes</h2>
@@ -356,7 +357,7 @@ function ExtendLeaseModal({ aircraft, onClose }) {
     ? `${w / 52} yr` : `${w} wk`;
 
   return (
-    <div className="saveload-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="saveload-overlay" {...backdropDismiss(() => onClose())}>
       <div className="saveload-modal" style={{ width: 'min(460px, 94vw)' }}>
         <div className="saveload-header">
           <h2 style={{ margin: 0, fontSize: 17 }}>Extend Lease</h2>
@@ -1482,16 +1483,13 @@ export function AircraftDetail({ aircraft, onClose, onConfigure, onRetire, onSel
                   <span style={{ color: 'var(--yellow)' }}> {ol.ownRoutes} uncovered — earning nothing.</span>
                 )}
               </div>
-            ) : ol.returning ? (
-              // The downtime countdown runs BEFORE the reserve pass, so a tail on
-              // its last week takes its own routes back next week — no cover is
-              // dispatched, and none is needed.
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                Back in service next week — {aircraft.name} takes its {ol.ownRoutes} route{ol.ownRoutes !== 1 ? 's' : ''} back itself, so no reserve is dispatched.
-              </div>
             ) : ol.coversNext > 0 ? (
+              // Sent into the shop (or a refit) between ticks: the next tick's
+              // reserve pass covers it from its first lost week. Downtime that
+              // starts IN the tick is covered at the end of it, so shows as
+              // covered already.
               <div style={{ fontSize: 13, color: 'var(--accent)' }}>
-                {ol.reserves.join(', ')} steps in next week and flies {ol.coversNext} of this aircraft's {ol.ownRoutes} route{ol.ownRoutes !== 1 ? 's' : ''}. Covers are dispatched by the weekly tick, so they start the week after the breakdown.
+                {ol.reserves.join(', ')} flies {ol.coversNext} of this aircraft's {ol.ownRoutes} route{ol.ownRoutes !== 1 ? 's' : ''} from next week, its first week out of service.
               </div>
             ) : (
               <div style={{ fontSize: 13, color: 'var(--yellow)' }}>
@@ -3660,12 +3658,6 @@ export default function Fleet({ initialCheckedIds = [] } = {}) {
                         if (!ol) return null;
                         if (ol.coveredNow > 0) {
                           return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}><Glyph e="🛡️" size={10} /> {ol.coveredNow}/{ol.coveredNow + ol.ownRoutes} covered</span>;
-                        }
-                        // Last week of downtime: the countdown hands it back before
-                        // the reserve pass runs, so it flies its own routes next week.
-                        // Warning about an absent cover here is pure noise.
-                        if (ol.returning) {
-                          return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)' }}>back in service next week</span>;
                         }
                         if (ol.coversNext > 0) {
                           return <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}><Glyph e="🛡️" size={10} /> cover starts next week — {ol.reserves.join(', ')}</span>;

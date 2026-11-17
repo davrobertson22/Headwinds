@@ -184,16 +184,24 @@ function withCheck(s, weeksLeft) {
   };
 }
 
-test('an aircraft on the LAST week of a C check is flying in the projection', () => {
-  const base = startedAirline();
-  const s = withCheck(base, 1);
+test('an aircraft on the LAST week of a C check is out in the projection AND in the tick', () => {
+  // Until 2026-11-16 the tick stood such a tail up BEFORE the week and flew it,
+  // and this test held the projection to that. The tick no longer does: a check
+  // of k weeks now costs k weeks of flying (tools/downtime-weeks-test.mjs), so
+  // the last week is spent in the hangar. What this suite pins is unchanged —
+  // the forecast and the week that happens must agree.
+  const s = withCheck(startedAirline(), 1);
   const grounded = s.fleet.find(a => a.status === 'maintenance');
   const routeId  = s.routes.find(r => r.aircraftId === grounded.id).id;
+  const paxOf = (rep) => {
+    const r = (rep?.routeResults ?? []).find(x => x.routeId === routeId);
+    return r ? (r.passengers ?? r.pax ?? 0) : 0;
+  };
   const proj = withNoRolls(() => projectWeek(s));
-  const flown = (proj.report.routeResults ?? []).find(r => r.routeId === routeId);
-  assert.ok(flown && (flown.passengers ?? flown.pax ?? 0) > 0,
-    'its route earned nothing in the forecast, but the reducer stands the aircraft up '
-    + 'before the tick and it flies the whole week — this is the $50M cliff on the card');
+  const next = withNoRolls(() => gameReducer(s, { type: 'ADVANCE_WEEK' }));
+  assert.equal(paxOf(next.lastReport), 0, 'the tick flew a tail on the last week of its check');
+  assert.equal(paxOf(proj.report), paxOf(next.lastReport), 'and the forecast disagrees with the tick');
+  assert.notEqual(next.fleet.find(a => a.id === grounded.id).status, 'maintenance', 'it is back once that week is served');
 });
 
 test('an aircraft with TWO weeks of check left is still grounded in the projection', () => {

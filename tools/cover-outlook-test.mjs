@@ -10,9 +10,13 @@
 //
 //   1. Covers are DISPATCHED BY THE TICK and breakdowns are rolled at the END
 //      of one, so a tail that broke this week cannot have been covered yet.
-//   2. tickPrep runs the downtime countdown BEFORE the reserve pass, so a tail
-//      with one week left comes back and flies its own routes — no cover is
-//      dispatched, and none is needed.
+//   2. (Until 2026-11-16) tickPrep ran the downtime countdown BEFORE the
+//      reserve pass, so a tail with one week left came back and flew its own
+//      routes. That made every downtime a week shorter than it said, and is gone:
+//      the countdown now runs after the week is flown, the last week is covered
+//      like any other, and the tick re-runs the reserve pass at its end — so a
+//      breakdown rolled in the tick IS covered by the time you see it
+//      (tools/downtime-weeks-test.mjs).
 //
 // coverOutlookByAircraft answers by running the real pass against the projected
 // fleet. These tests hold it to the tick: whatever it predicts, ADVANCE_WEEK
@@ -82,27 +86,28 @@ const ground = (s, id, weeks) => ({
   fleet: s.fleet.map(x => x.id === id ? { ...x, status: 'grounded', groundedWeeksLeft: weeks } : x),
 });
 
-console.log('\n── The countdown runs before the reserve pass ───────────');
+console.log('\n── The last week of downtime is a lost week, and covered ─');
 
-test('a tail on its LAST week of downtime is returning, not uncovered', () => {
-  let { s, a } = rig();
+test('a tail on its LAST week of downtime is out for that week, so the reserve is lined up', () => {
+  let { s, a, b } = rig();
   s = ground(s, a, 1);
   const ol = outlookFor(s, a);
   assert.ok(ol, 'an out-of-service tail with routes should have an outlook');
-  assert.equal(ol.returning, true, 'one week left means it flies again next week');
-  assert.equal(ol.coversNext, 0, 'nothing to cover — it takes its own routes back');
-  assert.equal(ol.reason, null, 'that is not a cover gap');
+  assert.equal(ol.lastWeek, true, 'one week left: next week is its last week out');
+  assert.equal(ol.coversNext, 1, 'and that week is covered, not flown by the tail in the shop');
+  assert.deepEqual(ol.reserves, [find(s, b).name]);
+  assert.equal(ol.reason, null);
 });
 
-test('and the tick agrees: it comes back and flies its own routes', () => {
+test('and the tick agrees: the reserve flies the week, then hands the route back', () => {
   let { s, a, b } = rig();
   s = ground(s, a, 1);
-  const ol   = outlookFor(s, a);
+  const hoursB = find(s, b).hoursSinceC ?? 0;
   const next = gameReducer(s, { type: 'ADVANCE_WEEK' });
-  assert.equal(isOutOfService(find(next, a)), false, 'the countdown should have returned it');
-  assert.equal(ol.returning, !isOutOfService(find(next, a)));
-  assert.equal(next.routes[0].aircraftId, a, 'the route stayed with its own tail');
-  assert.equal(next.routes[0].coverForAircraftId ?? null, null, 'no cover was dispatched');
+  assert.ok((find(next, b).hoursSinceC ?? 0) > hoursB, 'the reserve flew the last grounded week');
+  assert.equal(isOutOfService(find(next, a)), false, 'the tail is back in service once that week is served');
+  assert.equal(next.routes[0].aircraftId, a, 'and its route came straight home');
+  assert.equal(next.routes[0].coverForAircraftId ?? null, null);
 });
 
 test('advanceDowntimeOneWeek matches what the tick does to the tail', () => {
@@ -122,7 +127,7 @@ test('two weeks down with a matching reserve reads as a cover starting next week
   let { s, a, b } = rig();
   s = ground(s, a, 2);
   const ol = outlookFor(s, a);
-  assert.equal(ol.returning, false);
+  assert.equal(ol.lastWeek, false);
   assert.equal(ol.coveredNow, 0, 'nothing is covered yet — the tick has not run');
   assert.equal(ol.coversNext, 1, 'the reserve should be predicted onto the route');
   assert.deepEqual(ol.reserves, [find(s, b).name]);
@@ -192,12 +197,13 @@ const renderFleet = (s) => {
     .replace(/<!-- -->/g, '');
 };
 
-test('a tail on its last week is not accused of having no cover', () => {
-  let { s, a } = rig();
+test('a tail on its last week shows its cover, not "back in service next week"', () => {
+  let { s, a, b } = rig();
   s = ground(s, a, 1);
   const html = renderFleet(s);
-  assert.ok(!html.includes('no cover'), 'the row still cries "no cover" on the last week of downtime');
-  assert.ok(html.includes('back in service next week'), 'the row should say it is coming back');
+  assert.ok(!html.includes('no cover'), 'the row cries "no cover" with a reserve lined up');
+  assert.ok(!html.includes('back in service next week'), 'the row still promises the old free last week');
+  assert.ok(html.includes('cover starts next week'), 'the row should name the incoming cover');
 });
 
 test('a tail that a reserve is about to cover says so', () => {

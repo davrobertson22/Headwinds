@@ -106,6 +106,8 @@
     .btn.ghost:hover { border-color: var(--teal); color: var(--teal-bright); }
     .btn.discord { display: inline-flex; align-items: center; background: #5865F2; color: #fff; box-shadow: 0 6px 24px -6px rgba(88, 101, 242, 0.55); }
     .btn.discord:hover { background: #6b76f4; }
+    .btn.reddit { display: inline-flex; align-items: center; background: #FF4500; color: #fff; box-shadow: 0 6px 24px -6px rgba(255, 69, 0, 0.5); }
+    .btn.reddit:hover { background: #ff5f24; }
     @media (max-width: 720px) { nav.site a.link { display: none; } }
 
     /* hero */
@@ -227,6 +229,7 @@
             <a class="btn big" href="/play">Play free now →</a>
             <a class="btn big ghost" href="#how">How it works</a>
             <a class="btn big discord" href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="vertical-align:-5px;margin-right:8px;"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Join our Discord</a>
+            <a class="btn big reddit" href="https://www.reddit.com/r/HeadwindsTailwinds/" target="_blank" rel="noopener noreferrer">Join our Reddit</a>
           </div>
           <div class="statrow">
             <div><div class="n">2,000+</div><div class="l">Real airports</div></div>
@@ -371,10 +374,20 @@
         <p class="sec-sub" style="margin-bottom:20px;">Headwinds changes most days, and each significant update is written up for players in the <a href="/devlog.html">devlog</a>. The five most recent:</p>
         <div class="updates">
           <!-- DEVLOG-LATEST:START (generated from pages/devlog.html by tools/headwinds-public.mjs; do not edit) -->
+          <a class="update" href="/devlog/2026-11.html#every-aircraft-cruises-at-its-own-speed-in-every-world">
+            <span class="update-date">November 16, 2026</span>
+            <strong>Every aircraft cruises at its own speed, in every world</strong>
+            <span class="update-x">Most passenger aircraft used to fly at one speed per class: 500 km/h for any turboprop, 800 for a regional jet, 840 for a narrowbody and 870 for a widebody. A Twin Otter kept pace with a Q400, and a DC-3 with…</span>
+          </a>
           <a class="update" href="/devlog/2026-11.html#your-logo-on-the-livery-transparent-pngs-a-shape-and-a-tail">
             <span class="update-date">November 16, 2026</span>
             <strong>Your logo on the livery: transparent PNGs, a shape, and a tail logo you can move</strong>
             <span class="update-x">VodkaOnFire asked on Discord for more say over how a logo sits on the livery. Three changes, all in Edit Branding: the Livery tab and the Tail section of the logo maker.</span>
+          </a>
+          <a class="update" href="/devlog/2026-11.html#custom-catering-short-flights-no-longer-expect-beer">
+            <span class="update-date">November 16, 2026</span>
+            <strong>Custom catering: short flights no longer expect beer</strong>
+            <span class="update-x">In custom-catering worlds, a one-hour flight scored water, soft drinks and a snack as a thin service, and an airline had to add beer and wine to get near a full one. It was the wrong way round: the…</span>
           </a>
           <a class="update" href="/devlog/2026-11.html#every-atr-42-and-72-series-and-three-atr-freighters">
             <span class="update-date">November 15, 2026</span>
@@ -385,16 +398,6 @@
             <span class="update-date">November 14, 2026</span>
             <strong>Big airlines: opening and closing routes no longer freezes the page</strong>
             <span class="update-x">The fifth round of speed work, aimed at the slowest clicks left. As before, the figures are from the largest airline in Scarce Assets, about 4,900 aircraft and 4,000 routes.</span>
-          </a>
-          <a class="update" href="/devlog/2026-11.html#buy-an-aircraft-with-the-cabin-you-planned">
-            <span class="update-date">November 14, 2026</span>
-            <strong>Buy an aircraft with the cabin you planned</strong>
-            <span class="update-x">The Templates list in the buy and refit dialogs now includes the Route Planner’s standard layouts: all economy, packed economy, two-class, three-class and premium-heavy. Each one is sized to the aircraft…</span>
-          </a>
-          <a class="update" href="/devlog/2026-11.html#swapping-the-aircraft-on-a-route-no-longer-restarts-its">
-            <span class="update-date">November 12, 2026</span>
-            <strong>Swapping the aircraft on a route no longer restarts its demand</strong>
-            <span class="update-x">A new route builds up over its first 16 weeks: it starts at about 55% of its market and reaches the full market at week 16. That ramp was meant for new routes. But if you changed the aircraft on a route by…</span>
           </a>
           <!-- DEVLOG-LATEST:END -->
         </div>
@@ -444,6 +447,7 @@
         <a href="/contact.html">Contact</a>
         <a href="/support.html">Support</a>
         <a href="https://discord.com/invite/B7zP8X3YGm" target="_blank" rel="noopener noreferrer">Discord</a>
+        <a href="https://www.reddit.com/r/HeadwindsTailwinds/" target="_blank" rel="noopener noreferrer">Reddit</a>
         <a href="/privacy.html">Privacy</a>
         <a href="/terms.html">Terms</a>
         <span style="margin-left:auto;">© Headwinds — multiplayer, free in your browser. Solo game: <a href="https://www.tailwindsairlinegame.com" target="_blank" rel="noopener noreferrer">Tailwinds</a>.</span>
