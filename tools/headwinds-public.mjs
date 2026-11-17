@@ -322,6 +322,27 @@ function injectSupportLink(html) {
   return s;
 }
 
+// Link the community — Discord and the shared r/HeadwindsTailwinds subreddit —
+// from every page's footer. Most hand-written and synced pages had no community
+// link in the footer at all; the landing and play.html carry theirs by hand.
+// Goes after Support (injectSupportLink runs first), else after Contact.
+// Idempotent: a link the footer already has is skipped.
+const DISCORD_URL = 'https://discord.com/invite/B7zP8X3YGm';
+const REDDIT_URL = 'https://www.reddit.com/r/HeadwindsTailwinds/';
+const COMMUNITY_LINKS = [
+  [DISCORD_URL, 'Discord'],
+  [REDDIT_URL, 'Reddit'],
+];
+function injectCommunityLinks(html) {
+  return html.replace(/<footer class="site">[\s\S]*?<\/footer>/, (footer) => {
+    const missing = COMMUNITY_LINKS.filter(([url]) => !footer.includes(`href="${url}"`));
+    if (!missing.length) return footer;
+    const after = ['<a href="/support.html">Support</a>', '<a href="/contact.html">Contact</a>'].find((x) => footer.includes(x));
+    if (!after) return footer;
+    return footer.replace(after, after + missing.map(([url, label]) => `\n      <a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`).join(''));
+  });
+}
+
 // Link EVERY guide from every page's footer. Until 2026-11-10 the footers listed
 // How to Play, Strategy, Aircraft, Glossary and FAQ only: hub strategy, route
 // economics, fleet planning and competition & alliances were reachable from
@@ -335,6 +356,22 @@ const FOOTER_GUIDES = [
   ['fleet-planning.html', 'Fleet Planning'],
   ['competition-and-alliances.html', 'Competition &amp; Alliances'],
 ];
+// Articles explain real aviation with the game's data. They are linked from every
+// footer after the guides (after the comparison page where a footer has one).
+const FOOTER_ARTICLES = [
+  ['airline-alliances-explained.html', 'How Airline Alliances Work'],
+  ['airport-slots-explained.html', 'Airport Slots Explained'],
+];
+function injectArticleLinks(html) {
+  return html.replace(/<footer class="site">[\s\S]*?<\/footer>/, (footer) => {
+    const missing = FOOTER_ARTICLES.filter(([file]) => !footer.includes(`href="/${file}"`));
+    if (!missing.length) return footer;
+    const after = ['<a href="/best-airline-management-games.html">Best Airline Games</a>', '<a href="/competition-and-alliances.html">Competition &amp; Alliances</a>'].find((a) => footer.includes(a));
+    if (!after) return footer;
+    return footer.replace(after, after + missing.map(([file, label]) => `\n      <a href="/${file}">${label}</a>`).join(''));
+  });
+}
+
 function injectGuideLinks(html) {
   return html.replace(/<footer class="site">[\s\S]*?<\/footer>/, (footer) => {
     const anchor = '<a href="/strategy.html">Strategy</a>';
@@ -570,7 +607,7 @@ for (const f of readdirSync(OUT)) {
   if (!f.endsWith('.html')) continue;
   const p = path.join(OUT, f);
   const before = readFileSync(p, 'utf8');
-  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectGuideLinks(injectSupportLink(injectWorldsLink(injectRulesLink(before))))))), f);
+  const after = injectSocialMeta(injectAdSense(injectAnalytics(injectBrandLogo(injectArticleLinks(injectGuideLinks(injectCommunityLinks(injectSupportLink(injectWorldsLink(injectRulesLink(before))))))))), f);
   if (after !== before) { writeFileSync(p, after); linked++; }
 }
 
@@ -653,6 +690,11 @@ Headwinds is free to play at https://${DOMAIN}/ — sign in with Google, Discord
 - [Hub Strategy](https://${DOMAIN}/hub-strategy.html): building connecting banks under competition
 - [Competition & Alliances](https://${DOMAIN}/competition-and-alliances.html): rivalry, diplomacy, player alliances
 - [Glossary](https://${DOMAIN}/glossary.html): airline and multiplayer terms
+
+## Aviation explained
+
+- [How Airline Alliances Work](https://${DOMAIN}/airline-alliances-explained.html): Star Alliance, Oneworld and SkyTeam, codeshares and joint ventures, and player-founded alliances in Headwinds
+- [Airport Slots Explained](https://${DOMAIN}/airport-slots-explained.html): how the busiest airports ration flights, the 80/20 rule, slot prices, and gate scarcity in Headwinds
 
 ## Comparisons
 

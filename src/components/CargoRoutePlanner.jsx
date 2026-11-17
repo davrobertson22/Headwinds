@@ -16,6 +16,7 @@ import { consumeNavFilter, requestNav } from '../utils/navIntent.js';
 import { navPathFor } from '../navPath.js';
 import ReserveNotice from './ReserveNotice.jsx';
 import FinderReturnBar from './FinderReturnBar.jsx';
+import { inheritedWeeksOpen } from '../../packages/engine/src/models/pairMaturity.js';
 import { frequencySliderWidth } from '../utils/frequencySlider.js';
 
 // ─── Passenger / Freight mode toggle (shared with RoutePlanner) ─────────────────
@@ -332,7 +333,10 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     const cargoOpts = { gameDate: gd, competitors: state.competitors };
     const after        = simulateCargoNetwork([...existing, route], fleetPlus, cargoOpts);
     const result       = after.results.get('p') ?? null;
-    const resultLaunch = simulateCargoNetwork([...existing, { ...route, weeksOpen: 0 }], fleetPlus, cargoOpts).results.get('p') ?? null;
+    // Launch week at the maturity ADD_CARGO_ROUTE will give it: a lane you fly
+    // (or left a few weeks ago) is not a fresh launch (models/pairMaturity.js).
+    const launchWeeks  = inheritedWeeksOpen(state, origin, dest, { kind: 'cargo' });
+    const resultLaunch = simulateCargoNetwork([...existing, { ...route, weeksOpen: launchWeeks }], fleetPlus, cargoOpts).results.get('p') ?? null;
     if (!result) return null;
     // Connecting freight the new route brings to your OTHER freighter routes:
     // the network's variable profit on them, after minus before.
@@ -346,7 +350,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
     }
     const netProfit = result.profit - type.weeklyLease; // approx (excludes landing/maint; shown separately)
     return { result, resultLaunch, type, netProfit, networkGain, shared: laneRoutes.length > 0 };
-  }, [routeData, selectedTypeId, frequency, effectiveYield, origin, dest, laneRoutes, state.fleet, state.cargoRoutes, state.competitors, gd.month]);
+  }, [routeData, selectedTypeId, frequency, effectiveYield, origin, dest, laneRoutes, state.fleet, state.cargoRoutes, state.competitors, state.closedPairMaturity, state.week, gd.month]);
 
   // A single freighter's 140h weekly block-hour budget caps how many round trips
   // it can fly on this lane. On long-haul freight that ceiling lands near one

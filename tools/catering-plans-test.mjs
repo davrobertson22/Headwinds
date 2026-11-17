@@ -8,7 +8,8 @@
 //   3. Tiers: Basic 60% of the cost for 70% of the value, Premium 150% for 125%.
 //   4. Sold items: only buyers are served; dearer means fewer buyers and less
 //      quality; an overpriced item is never worse than not offering it.
-//   5. Short flights: the meal counts for half, the expected set still sums to 1.
+//   5. Short flights have their own expectations: water, soft drinks and a snack
+//      are a full economy service under 1,000 km; beer and meals are extras.
 //   6. Customising a classic level lands close to it.
 //   7. Kitchens: a caterer leaves out what it cannot make, at the end it cooks for.
 //   8. A world with no plan in use is byte-identical (golden master).
@@ -30,7 +31,7 @@ import { defaultAncillaries } from '../packages/engine/src/data/ancillaries.js';
 import { routeCatering, cateringQualityBonus, CABIN_CLASSES, CATERING_LEVEL_ORDER } from '../packages/engine/src/data/catering.js';
 import { makeCateringContract } from '../packages/engine/src/data/cateringContracts.js';
 import {
-  CATERING_ITEMS, CATERING_EXPECTED, CATERING_TIERS, MAX_CATERING_PLANS,
+  CATERING_ITEMS, CATERING_EXPECTED, CATERING_EXPECTED_SHORT, CATERING_TIERS, MAX_CATERING_PLANS,
   CATERING_SCORE_NONE, CATERING_SCORE_FULL, CATERING_SCORE_CEILING, CATERING_SOLD_VALUE_AT_REF,
   itemCost, itemReferencePrice, itemMaxPrice, itemValue, itemTakeRate, soldValueFactor,
   cabinMenuEconomics, planCabinEconomics, cabinQualityWeights, planQualityBonus, planRouteCatering,
@@ -68,7 +69,13 @@ test('the Standard expected set costs exactly what classic Full Service costs, i
 test('one scale: nothing is the classic None, the expected set is the classic Full, and extras stop below the ceiling', () => {
   for (const cabin of CABIN_CLASSES) for (const d of DISTS) {
     assert.equal(cabinMenuEconomics({}, cabin, d).score, CATERING_SCORE_NONE);
-    near(cabinMenuEconomics(expected(cabin), cabin, d).score, CATERING_SCORE_FULL, 1e-9, `${cabin} ${d}`);
+    // The long-haul expected set is exactly classic Full in economy and premium
+    // economy at every distance, and in every cabin from 4,000 km. On shorter
+    // flights business and first serve extras a hop does not need, so they score
+    // a little above Full there (short-haul expectations, 2026-11-15).
+    const sc = cabinMenuEconomics(expected(cabin), cabin, d).score;
+    if (d >= 4000 || cabin === 'economy' || cabin === 'premiumEconomy') near(sc, CATERING_SCORE_FULL, 1e-9, `${cabin} ${d}`);
+    else assert.ok(sc >= CATERING_SCORE_FULL && sc < CATERING_SCORE_FULL + 1, `${cabin} ${d}: ${sc}`);
     const everything = free(CATERING_ITEMS.map(i => i.id), 'premium');
     const top = cabinMenuEconomics(everything, cabin, d).score;
     assert.ok(top > CATERING_SCORE_FULL && top < CATERING_SCORE_CEILING, `${cabin} ${d}: ${top}`);
@@ -162,15 +169,41 @@ test('premium cabins buy more often; long flights sell a little more', () => {
 // Distance
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('short flights: the meal counts for half, drinks and the snack for more, and the expected set still sums to 1', () => {
-  near(itemValue('hotMeal', 'economy', 500), 0.275, 1e-9);
-  near(itemValue('hotMeal', 'economy', 4000), 0.55, 1e-9);
-  near(itemValue('hotMeal', 'economy', 12000), 0.55, 1e-9);
-  assert.ok(itemValue('softDrinks', 'economy', 500) > itemValue('softDrinks', 'economy', 6000));
-  assert.ok(itemValue('hotMeal', 'economy', 2500) > 0.275 && itemValue('hotMeal', 'economy', 2500) < 0.55, 'a straight blend between');
+test('short flights have their own expectations: water, soft drinks and a snack are a full economy service', () => {
+  // From a player (2026-11-15): "I shouldn't have to give my passengers beer on
+  // a flight that lasts an hour". The first short-flight rule handed the meal's
+  // lost value to every other item, beer included, so beer mattered MORE on a
+  // hop (0.32 of the cabin) than on long haul (0.20).
   const drinksAndSnack = free(['water', 'softDrinks', 'snack']);
-  assert.ok(cabinMenuEconomics(drinksAndSnack, 'economy', 500).score > cabinMenuEconomics(drinksAndSnack, 'economy', 6000).score + 4,
-    'a drink and a snack is decent service on a hop and thin on long haul');
+  for (const d of [300, 500, 1000]) {
+    near(cabinMenuEconomics(drinksAndSnack, 'economy', d).score, CATERING_SCORE_FULL, 1e-9, `economy at ${d} km`);
+    const withBeer = cabinMenuEconomics({ ...drinksAndSnack, beerWine: { mode: 'free' } }, 'economy', d).score;
+    assert.ok(withBeer - CATERING_SCORE_FULL < 1.5, `beer is a small extra at ${d} km, not a requirement (+${(withBeer - CATERING_SCORE_FULL).toFixed(1)})`);
+  }
+  assert.ok(itemValue('beerWine', 'economy', 500) < itemValue('beerWine', 'economy', 6000), 'beer matters less on a hop than on long haul');
+  assert.ok(itemValue('hotMeal', 'economy', 500) < itemValue('hotMeal', 'economy', 6000));
+  assert.ok(cabinMenuEconomics(drinksAndSnack, 'economy', 500).score > cabinMenuEconomics(drinksAndSnack, 'economy', 6000).score + 10,
+    'a drink and a snack is a full service on a hop and thin on long haul');
+});
+
+test('each cabin\'s short-haul set sums to 1; the long-haul table is untouched from 4,000 km', () => {
+  for (const cabin of CABIN_CLASSES) {
+    const sum = (set, d) => set.reduce((t, id) => t + itemValue(id, cabin, d), 0);
+    near(sum(CATERING_EXPECTED_SHORT[cabin], 500), 1, 1e-9, `${cabin} short set`);
+    near(sum(CATERING_EXPECTED[cabin], 4000), 1, 1e-9, `${cabin} long set at 4,000 km`);
+    for (const it of CATERING_ITEMS) {
+      if (it.cost[cabin] == null) continue;
+      near(itemValue(it.id, cabin, 4000), it.value[cabin], 1e-12, `${it.id} ${cabin} at 4,000 km`);
+      near(itemValue(it.id, cabin, 12000), it.value[cabin], 1e-12, `${it.id} ${cabin} at 12,000 km`);
+      const mid = itemValue(it.id, cabin, 2500), a = itemValue(it.id, cabin, 1000), b = itemValue(it.id, cabin, 4000);
+      near(mid, (a + b) / 2, 1e-12, `${it.id} ${cabin} blends in a straight line`);
+    }
+    // The long-haul expected set (what classic Full serves) is never short of a
+    // full service on a short flight: exactly 1 in economy and premium economy,
+    // a little over in business and first, which serve extras a hop does not need.
+    const longAtShort = sum(CATERING_EXPECTED[cabin], 500);
+    assert.ok(longAtShort >= 1 - 1e-9 && longAtShort <= 1.07, `${cabin} long set at 500 km = ${longAtShort.toFixed(3)}`);
+  }
 });
 
 test('the stakes rise with distance: same menu, bigger bill and bigger quality swing', () => {
@@ -200,7 +233,10 @@ test('customising a classic level lands close to it: None, Partial and Full on t
     const a = cateringRefSummary(lvl, {}, d, cfg), b = cateringRefSummary('plan:t', { t: p }, d, cfg);
     const moneyTol = lvl === 'hybrid' ? Math.abs(a.netPerPax) * 0.10 : lvl === 'paid' ? a.netPerPax * 0.03 : 0.02;
     near(b.netPerPax, a.netPerPax, moneyTol + 0.011, `${lvl} ${d} km net/pax`);
-    near(b.quality, a.quality, lvl === 'paid' ? 4 : 1, `${lvl} ${d} km quality`);
+    // Hybrid's copy gives a free cold meal, which on a medium flight is close to
+    // a full service under the short-haul expectations: up to 2 points above the
+    // classic level there, within 1 from 4,000 km.
+    near(b.quality, a.quality, lvl === 'paid' ? 4 : lvl === 'hybrid' && d < 4000 ? 2 : 1, `${lvl} ${d} km quality`);
   }
 });
 

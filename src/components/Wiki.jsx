@@ -193,6 +193,7 @@ const WIKI = [
       { h: 'Managing a route' },
       { p: 'Click any route to open its **Route Detail**, where you can see your performance, market share, the competitors flying the same city pair, connecting-passenger contribution and maintenance status. Adjust price, frequency, aircraft or catering here as conditions change.' },
       { tip: 'A new route ramps up over its first weeks as travellers discover it · don\'t panic if early load factors look soft. Give it time before judging it.' },
+      { tip: 'Changing the aircraft on a route does not restart the ramp. Use **Move** on the Routes list to put a route on another tail, or open the pair on the new aircraft and close the old one: an extra tail on a pair you already fly joins at the pair\'s maturity. A pair you closed is remembered for a few weeks (it loses two weeks of maturity for every week off), so a quick reopen is a swap, not a new launch.' },
     ],
   },
   {
@@ -375,7 +376,7 @@ const WIKI = [
       { h: 'Flight length' },
       { ul: [
         'Costs and the quality at stake both grow with distance, as they do for the classic levels.',
-        'Under 1,000 km a meal counts for half what it does on long haul, and drinks and a snack count for more. From 4,000 km the meal is most of what passengers judge. That is the reason to keep a short-haul plan and a long-haul plan.',
+        'Short flights have their own expectations. Under 1,000 km, water, soft drinks and a snack are a full economy service, and beer, wine or a meal only add a little; premium economy also expects beer and wine and a cold meal, and business and first a little more again. From 4,000 km the meal is most of what passengers judge, and between the two the expectations blend. That is the reason to keep a short-haul plan and a long-haul plan.',
       ] },
       { h: 'Putting a plan on routes' },
       { ul: [

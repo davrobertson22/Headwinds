@@ -21,9 +21,13 @@
 //   Quality   Each item is worth a share of what the cabin expects. Free counts
 //             in full, sold counts for less the dearer it is. −12 with nothing,
 //             +11 at the expected set (the classic None and Full), up to +17.
-//   Distance  On short flights the meal counts for half and drinks and the
-//             snack make up the difference; cost and the overall stakes scale
-//             with distance by the classic factors.
+//   Distance  Short flights have their own expectations (2026-11-15, from a
+//             player: "I shouldn't have to give my passengers beer on a flight
+//             that lasts an hour"). Under 1,000 km economy is fully served by
+//             water, soft drinks and a snack; beer and meals are small extras.
+//             The premium cabins expect a little more. Blends to the long-haul
+//             table by 4,000 km. Cost and the overall stakes still scale with
+//             distance by the classic factors.
 //   Kitchens  A caterer's level cap becomes a kitchen type: what it cannot make
 //             is not loaded at the end it cooks for.
 //
@@ -109,23 +113,42 @@ export const CATERING_SCORE_FULL    = 11;   // classic Full
 export const CATERING_SCORE_CEILING = 17;
 const SCORE_SPAN = CATERING_SCORE_FULL - CATERING_SCORE_NONE;   // 23
 
-/** Meals count for this much of their long-haul value on a short flight. */
-const SHORT_MEAL_FACTOR = 0.5;
+/** Under SHORT_KM the short-haul values apply; from LONG_KM the long-haul ones; a straight blend between. */
 const SHORT_KM = 1000, LONG_KM = 4000;
 
 export const MAX_CATERING_PLANS = 12;
 export const CATERING_PLAN_NAME_MAX = 32;
 
-// Per cabin: how much the non-meal items scale up on a short flight so the
-// expected set still sums to 1.0 with the meal items at half value.
-const SHORT_OTHER_FACTOR = Object.fromEntries(CABIN_CLASSES.map(cabin => {
-  let meal = 0, other = 0;
-  for (const id of CATERING_EXPECTED[cabin]) {
-    const it = CATERING_ITEM_MAP[id];
-    if (it.meal) meal += it.value[cabin]; else other += it.value[cabin];
-  }
-  return [cabin, other > 0 ? 1 + (meal * (1 - SHORT_MEAL_FACTOR)) / other : 1];
-}));
+// What each item is worth on a short flight (under SHORT_KM), as a share of
+// what that cabin expects there. Each cabin's short-haul set sums to 1.0:
+//   economy          water, soft drinks, a snack
+//   premium economy  the above, beer and wine, and a meal (cold is enough)
+//   business         the above, spirits and champagne
+//   first            the above and extra courses
+// Anything else is a small extra above the set. The long-haul expected set
+// (CATERING_EXPECTED) also sums to 1.0 here in economy and premium economy,
+// so a customised copy of classic Full scores the same as Full in those
+// cabins; in business and first it sums a little over 1.0 because it serves
+// extras a short flight does not need.
+export const CATERING_EXPECTED_SHORT = {
+  economy:        ['water', 'softDrinks', 'snack'],
+  premiumEconomy: ['water', 'softDrinks', 'snack', 'beerWine', 'coldMeal'],
+  businessClass:  ['water', 'softDrinks', 'snack', 'beerWine', 'coldMeal', 'spirits', 'champagne'],
+  firstClass:     ['water', 'softDrinks', 'snack', 'beerWine', 'coldMeal', 'spirits', 'champagne', 'courses'],
+};
+const SV = (economy, premiumEconomy, businessClass, firstClass) => ({ economy, premiumEconomy, businessClass, firstClass });
+const SHORT_VALUE = {
+  water:      SV(0.20, 0.10, 0.05, 0.04),
+  softDrinks: SV(0.40, 0.25, 0.12, 0.08),
+  snack:      SV(0.40, 0.25, 0.10, 0.06),
+  beerWine:   SV(0.10, 0.20, 0.15, 0.12),
+  spirits:    SV(0.03, 0.05, 0.08, 0.08),
+  champagne:  SV(0.03, 0.05, 0.10, 0.14),
+  coldMeal:   SV(0.30, 0.20, 0.40, 0.32),
+  hotMeal:    SV(0.30, 0.20, 0.40, 0.32),
+  courses:    SV(0.02, 0.00, 0.06, 0.16),
+  fineDining: SV(0,    0,    0.03, 0.06),
+};
 
 // ─── Refs ────────────────────────────────────────────────────────────────────
 
@@ -210,8 +233,8 @@ function haul(distKm) {
 export function itemValue(itemId, cabin, distKm) {
   const it = CATERING_ITEM_MAP[itemId];
   const long = it?.value?.[cabin] ?? 0;
-  if (!long) return 0;
-  const short = long * (it.meal ? SHORT_MEAL_FACTOR : SHORT_OTHER_FACTOR[cabin]);
+  if (!it || it.cost[cabin] == null) return 0;
+  const short = SHORT_VALUE[itemId]?.[cabin] ?? long;
   const t = haul(distKm);
   return short + (long - short) * t;
 }

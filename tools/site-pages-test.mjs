@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { devlogPages, withLatest, POST_MIN_WORDS, HOME_LATEST } from './site-devlog.mjs';
 import { buildToTemp, listBuilt, compare, contentBlocks, longDate, ENTRY_PAGES } from './site-page-dates.mjs';
+import { staleSlots } from './site-guide-charts.mjs';
 
 const argOf = (name) => {
   const i = process.argv.indexOf(name);
@@ -86,6 +87,17 @@ try {
     for (const rel of built) {
       const footer = (readOut(rel).match(/<footer class="site">[\s\S]*?<\/footer>/) || [''])[0];
       const lacks = guides.filter((g) => !footer.includes(`href="/${g}.html"`));
+      if (lacks.length) short.push(`${rel}: ${lacks.join(', ')}`);
+    }
+    assert.deepEqual(short, []);
+  });
+
+  test('each footer links the aviation articles', () => {
+    const articles = ['airline-alliances-explained', 'airport-slots-explained'];
+    const short = [];
+    for (const rel of built) {
+      const footer = (readOut(rel).match(/<footer class="site">[\s\S]*?<\/footer>/) || [''])[0];
+      const lacks = articles.filter((a) => !footer.includes(`href="/${a}.html"`));
       if (lacks.length) short.push(`${rel}: ${lacks.join(', ')}`);
     }
     assert.deepEqual(short, []);
@@ -178,7 +190,21 @@ try {
     }
   });
 
-  console.log('\n6. Every page stands on its own');
+  console.log('\n6. Articles');
+  test('generated charts and tables on hand-written pages match the game', () => {
+    assert.deepEqual(Object.keys(staleSlots()), [], 'run: node tools/site-guide-charts.mjs');
+  });
+  test('each article is substantial and cites at least three outside sources', () => {
+    for (const rel of ['airline-alliances-explained.html', 'airport-slots-explained.html']) {
+      const h = readOut(rel);
+      assert.ok(words(h) >= 1200, `${rel}: ${words(h)} words`);
+      const main = h.match(/<main[\s\S]*<\/main>/)[0];
+      const outside = new Set([...main.matchAll(/href="(https?:\/\/[^"]+)"/g)].map((m) => m[1]).filter((u) => !u.includes('headwindsairlinegame.com') && !u.includes('tailwindsairlinegame.com')));
+      assert.ok(outside.size >= 3, `${rel}: ${outside.size} outside sources`);
+    }
+  });
+
+  console.log('\n7. Every page stands on its own');
   test('unique titles, a description, and a canonical on this domain', () => {
     const titles = new Map();
     for (const rel of built) {
