@@ -70,7 +70,7 @@ const fleet = SPECS.map((s, i) => ({
 const save = {
   ...freshState(),
   phase: 'playing', week: 20, year: 2, hub: HUB, cash: 200_000_000,
-  scheduleTrimVersion: 1,
+  scheduleTrimVersion: 2,
   gates: { [HUB]: 20, ...Object.fromEntries(SPECS.map(s => [s.dest, 10])) },
   fleet, routes,
 };

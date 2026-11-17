@@ -39,7 +39,7 @@ const route = (id, dest, acId, f, schedule) => ({ id, origin: 'SYD', destination
   weeklyFrequency: f, weeksOpen: 40, hub: 'SYD', cateringLevel: 'full', ...(schedule ? { schedule } : {}) });
 const baseState = (extra = {}) => ({
   ...freshState(),
-  phase: 'playing', week: 20, year: 2, hub: 'SYD', cash: 20_000_000, scheduleTrimVersion: 1,
+  phase: 'playing', week: 20, year: 2, hub: 'SYD', cash: 20_000_000, scheduleTrimVersion: 2,
   hubs: { SYD: { tier: 2, tierSince: 0 } }, gates: { SYD: 16, MEL: 6, BNE: 6, PER: 6 },
   competitors: [],
   fleet: [ac('ac0', 'VH-AAA'), ac('ac1', 'VH-BBB'), ac('ac2', 'VH-CCC')],

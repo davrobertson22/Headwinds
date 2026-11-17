@@ -111,7 +111,7 @@ const save = {
   // save as already through the one-off over-cap trim keeps loading it from
   // rewriting the frequencies under the suite; the subject here is the MAP
   // agreeing with the engine, not the migration.
-  scheduleTrimVersion: 1,
+  scheduleTrimVersion: 2,
   gates: { [HUB]: 12, ...Object.fromEntries(SPOKES.map(c => [c, 8])) },
   fleet,
   routes,

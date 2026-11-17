@@ -383,7 +383,13 @@ await t('the gates its routes use count against "the fleet pays for itself"', ()
 });
 
 console.log('\ncutting back');
-const matureRoute = grown.routes.find((r) => (r.weeksOpen ?? 0) >= P.rampWeeks) ?? grown.routes[0];
+// The fixture airline is whatever the bot built in 40 weeks, so it moves with the
+// catalogue. A tail can be out of service in the very week it is sampled (the
+// 2026-11-16 cruise speeds left both Il-18s without a report row that week), and
+// a route with no row in the report is one the bot cannot judge. Sample one that
+// flew.
+const flewInGrown = (r) => (grown.lastReport?.routeResults ?? []).some((rr) => rr.routeId === r.id);
+const matureRoute = grown.routes.find((r) => (r.weeksOpen ?? 0) >= P.rampWeeks && flewInGrown(r)) ?? grown.routes[0];
 const withResult = (st, routeId, patch) => ({ ...st, lastReport: { ...st.lastReport, routeResults: st.lastReport.routeResults.map((rr) => (rr.routeId === routeId ? { ...rr, ...patch } : rr)) } });
 // Every other route on the same aircraft earning plenty, so the aircraft as a
 // whole is fine and only the route rule can be what closes the loser.
@@ -402,7 +408,7 @@ await t('a mature route that keeps losing money is closed, and not walked straig
 await t('an aircraft whose routes do not cover what it costs has them closed', () => {
   // Each route makes a little on its own flying (so the route rule is silent),
   // but together they are nowhere near the aircraft's rent, upkeep and crew.
-  const tail = grown.fleet.find((a) => grown.routes.some((r) => r.aircraftId === a.id));
+  const tail = grown.fleet.find((a) => { const rs = grown.routes.filter((r) => r.aircraftId === a.id); return rs.length > 0 && rs.every(flewInGrown); });
   const mine = grown.routes.filter((r) => r.aircraftId === tail.id);
   assert.ok(tailCarryCost(grown, tail, P) > 2_000 * mine.length);
   let st = { ...grown, routes: grown.routes.map((r) => (r.aircraftId === tail.id ? { ...r, weeksOpen: 30 } : r)) };
@@ -433,7 +439,10 @@ await t('a route still on its ramp is never judged', () => {
 await t('an aircraft with nothing worth flying goes back to the lessor', () => {
   const tail = grown.fleet.find((a) => a.ownershipType === 'lease' && grown.routes.some((r) => r.aircraftId === a.id));
   const st = { ...grown, cash: 5e7, routes: grown.routes.filter((r) => r.aircraftId !== tail.id) };
-  let mem = grownMem; let returned = null;
+  // minDemand only filters a FRESH ranking; the bot keeps each type's last
+  // ranking for rankWeeks, so drop it or the tail is planned onto markets the
+  // test means to have ruled out.
+  let mem = { ...clone(grownMem), ranks: {} }; let returned = null;
   for (let i = 1; i <= 3; i++) {
     const r = turn(st, mem, { params: { minDemand: 1e12, idleWeeksToReturn: 3 } }); mem = r.memory;
     if (r.actions.some((a) => a.type === 'RETIRE_AIRCRAFT' && a.aircraftId === tail.id)) { returned = i; break; }

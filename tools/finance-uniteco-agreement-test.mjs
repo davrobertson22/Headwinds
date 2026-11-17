@@ -86,7 +86,7 @@ const fleet = [0, 1].map((i) => ({
 const saveAt = (fare) => ({
   ...base0,
   phase: 'playing', week: 20, year: 2, hub: HUB, cash: 200_000_000,
-  scheduleTrimVersion: 1,
+  scheduleTrimVersion: 2,
   gates: { [HUB]: 20, [DEST]: 10 },
   fleet,
   routes: [0, 1].map((i) => ({

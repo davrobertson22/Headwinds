@@ -38,7 +38,7 @@ const { buildDepartureBoard } = await import('../src/models/departureBoard.js');
 const jet = AIRCRAFT_TYPES.find(t => !t.freighter && t.category === 'Narrow Body');
 const save = (routes, extra = {}) => store.set('bbae_save_v2', JSON.stringify({
   ...freshState(),
-  phase: 'playing', week: 20, year: 2, hub: 'SYD', cash: 20_000_000, scheduleTrimVersion: 1,
+  phase: 'playing', week: 20, year: 2, hub: 'SYD', cash: 20_000_000, scheduleTrimVersion: 2,
   hubs: { SYD: { tier: 2, tierSince: 0 } }, gates: { SYD: 16, MEL: 6, BNE: 6 },
   competitors: [],
   fleet: [

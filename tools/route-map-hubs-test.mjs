@@ -154,7 +154,7 @@ const jet = AIRCRAFT_TYPES.filter(t => !t.freighter && t.seats >= 140).sort((a, 
 const save = {
   ...freshState(),
   phase: 'playing', week: 20, year: 2, hub: 'DFW', cash: 20_000_000,
-  scheduleTrimVersion: 1,
+  scheduleTrimVersion: 2,
   hubs: {
     DFW: { tier: 2, tierSince: 0 }, MCI: { tier: 1, tierSince: 40 },
     SLC: { tier: 1, tierSince: 44 }, SJU: { tier: 0, tierSince: 60 },

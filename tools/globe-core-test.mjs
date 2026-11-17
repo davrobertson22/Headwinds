@@ -131,7 +131,7 @@ const { AIRCRAFT_TYPES } = await import('../src/data/aircraft.js');
 const jet = AIRCRAFT_TYPES.filter(t => !t.freighter && t.seats >= 140).sort((a, b) => b.range - a.range)[0];
 store.set('bbae_save_v2', JSON.stringify({
   ...freshState(),
-  phase: 'playing', week: 20, year: 2, hub: 'DXB', cash: 20_000_000, scheduleTrimVersion: 1,
+  phase: 'playing', week: 20, year: 2, hub: 'DXB', cash: 20_000_000, scheduleTrimVersion: 2,
   hubs: { DXB: { tier: 2, tierSince: 0 } },
   gates: { DXB: 16, LHR: 6 },
   fleet: [{ id: 'ac0', typeId: jet.id, name: 'Test 0', tailNumber: 'A6TEST', status: 'assigned',
