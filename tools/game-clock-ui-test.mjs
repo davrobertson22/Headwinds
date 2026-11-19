@@ -55,8 +55,19 @@ await test('with the pace, the countdown leads with the game time', () => {
   // Half the interval left at 1 week/day → Thursday noon.
   const next = new Date(Date.now() + tickIntervalMs(1) / 2).toISOString();
   const html = strip(renderToString(React.createElement(TickCountdown, { nextTickAt: next, weeksPerDay: 1 })));
-  assert.match(html, /<strong>Thu 1[12]:\d\d<\/strong> UTC · next week in/);
+  assert.match(html, /<strong translate="no">Thu 1[12]:\d\d<\/strong> UTC · next week in/);
   assert.match(html, /title="[^"]*Game time Thu/);
+});
+
+await test('browser translators leave the game clock alone', () => {
+  // A bare day abbreviation, translated as a word, read "Kill 18:45 UTC" (2026-11-18).
+  const next = new Date(Date.now() + tickIntervalMs(1) / 2).toISOString();
+  const html = strip(renderToString(React.createElement(TickCountdown, { nextTickAt: next, weeksPerDay: 1 })));
+  assert.match(html, /<strong translate="no">(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d\d:\d\d<\/strong>/);
+  const late = strip(renderToString(React.createElement(TickCountdown, {
+    nextTickAt: new Date(Date.now() - 10 * 60_000).toISOString(), weeksPerDay: 6,
+  })));
+  assert.match(late, /<strong translate="no">Sun 23:59<\/strong>/, 'the late and catching-up states too');
 });
 
 await test('a late tick holds the clock at Sunday 23:59', () => {

@@ -43,7 +43,10 @@ export default function TickCountdown({ nextTickAt, paceLabel, stale, preStart =
   const clockTip = clock
     ? `Game time ${clockText} UTC. The simulation runs in whole weeks — this week's results land at Sunday midnight.`
     : null;
-  const lead = clockText ? <><strong>{clockText}</strong>{' UTC · '}</> : null;
+  // translate="no": a lone "Tue" or "Sat" is the one thing in the bar a browser
+  // translator gets wrong — with no sentence around it, it is translated as a
+  // word, and players saw "Kill 18:45 UTC" (2026-11-18). Day names stay as-is.
+  const lead = clockText ? <><strong translate="no">{clockText}</strong>{' UTC · '}</> : null;
   // Overdue AND out of contact is not "landing" — it's us, not the world.
   if (ms <= 0) {
     if (stale) return <span title={clockTip ?? undefined}>{lead}waiting for the server…</span>;
