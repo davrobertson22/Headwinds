@@ -102,7 +102,12 @@ export function wifiLeaseSurcharge() {
 
 /** Is this tail fitted? Undefined/legacy tails read as NOT equipped. */
 export function isWifiEquipped(aircraft) {
-  return !!aircraft?.hasWifi;
+  // A freighter never counts, even one fitted before freighters were barred
+  // (Tailwinds Discord 2026-11-18): no passengers to sell Wi-Fi to, so it must
+  // not keep paying WIFI_WEEKLY_OPEX or show a badge. (A fitted propliner from
+  // before the airframe gate DOES still count.)
+  if (!aircraft?.hasWifi) return false;
+  return !(aircraft.typeId && getAircraftType(aircraft.typeId)?.freighter);
 }
 
 /**
@@ -210,6 +215,15 @@ export function wifiCoverageFor(aircraft) {
  * @param {number}   cash
  * @returns {{ ok, reasons: string[], eligible: object[], unitCost, capex }}
  */
+/** Why none of several selected tails can be fitted: freighters, old
+ *  airframes, or a mix of the two. */
+function wifiUnfittableGroupReason(tails) {
+  const freighters = tails.filter(a => getAircraftType(a.typeId)?.freighter).length;
+  if (freighters === tails.length) return 'None of these aircraft can be fitted with Wi-Fi — freighters carry no passengers.';
+  if (freighters === 0) return 'None of these airframes can be fitted with Wi-Fi — they left production decades before onboard connectivity existed.';
+  return 'None of these aircraft can be fitted with Wi-Fi — they are freighters, or airframes that left production before onboard connectivity existed.';
+}
+
 export function canRetrofitWifi(aircraftList = [], cash = 0, { calYear = null } = {}) {
   const unitCost   = wifiRetrofitCost();
   // Era worlds: before onboard internet exists there is nothing to quote — no
@@ -233,7 +247,7 @@ export function canRetrofitWifi(aircraftList = [], cash = 0, { calYear = null } 
     reasons.push(unfittable.length > 0 && candidates.length === unfittable.length
       ? (unfittable.length === 1
           ? wifiAirframeReason(unfittable[0])
-          : 'None of these airframes can be fitted with Wi-Fi — they left production decades before onboard connectivity existed.')
+          : wifiUnfittableGroupReason(unfittable))
       : 'Every aircraft selected is already fitted with Wi-Fi.');
   } else if (cash < capex) {
     reasons.push('Not enough cash to fit Wi-Fi to this many aircraft.');

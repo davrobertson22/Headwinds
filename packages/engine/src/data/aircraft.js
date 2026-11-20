@@ -5122,6 +5122,10 @@ export const WIFI_AIRFRAME_FROM = 1970;
  */
 export function canFitWifi(type) {
   if (!type) return false;
+  // A freighter has no cabin and no passengers to connect (Tailwinds Discord
+  // 2026-11-18: "the game let me fit Wi-Fi to my 777-8Fs"). Checked before the
+  // override so no `wifi: true` on a freighter type can reopen it.
+  if (type.freighter) return false;
   if (type.wifi != null) return type.wifi;
   return (type.oop ?? Infinity) >= WIFI_AIRFRAME_FROM;
 }
@@ -5138,6 +5142,7 @@ export function canFitWifi(type) {
  */
 export function wifiAirframeDenial(type) {
   if (!type || canFitWifi(type)) return null;
+  if (type.freighter) return `The ${type.name} is a freighter: it carries no passengers, so there is no one to connect.`;
   const closed = type.oop != null
     ? ` — the line closed in ${type.oop}, decades before onboard connectivity existed, and no `
       + `installation was ever certified for the type`

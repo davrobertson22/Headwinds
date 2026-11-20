@@ -69,13 +69,14 @@ t('the modern and late-jet catalogue is untouched', () => {
 t('the rule is the production line closing, not entry into service', () => {
   for (const type of AIRCRAFT_TYPES) {
     if (type.wifi != null) continue;              // explicit override, not the rule
+    if (type.freighter) continue;                 // no passengers: wifi-freighter-test.mjs
     const expected = (type.oop ?? Infinity) >= WIFI_AIRFRAME_FROM;
     assert.equal(canFitWifi(type), expected, `${type.name} (oop ${type.oop})`);
   }
 });
 
 t('a type still in production is always fittable', () => {
-  const inProduction = AIRCRAFT_TYPES.filter(a => a.oop == null && a.wifi == null);
+  const inProduction = AIRCRAFT_TYPES.filter(a => a.oop == null && a.wifi == null && !a.freighter);
   assert.ok(inProduction.length > 20, 'expected many in-production types');
   for (const type of inProduction) assert.equal(canFitWifi(type), true, type.name);
 });

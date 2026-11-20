@@ -591,6 +591,9 @@ function WifiBadge({ aircraft }) {
   const fitted  = isWifiEquipped(aircraft);
   const quote   = canRetrofitWifi([aircraft], state.cash, { calYear: eraCalendarYear(state) });
 
+  // A freighter has no passengers: no button, no badge, no penalty story.
+  if (getAircraftType(aircraft.typeId)?.freighter) return null;
+
   if (fitted) {
     return (
       <span className="badge" style={{ background: 'rgba(56,139,253,.12)', color: 'var(--accent)', border: '1px solid rgba(56,139,253,.35)' }}
