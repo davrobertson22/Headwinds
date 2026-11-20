@@ -646,7 +646,8 @@ export default function RouteFinder({ onPick, standalone = false }) {
               </div>
               <OriginSlotsLine code={originAirport.code} freq={7} position={slotPosition} />
               <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                {/* finder-table/fc-*: phone cards (index.css "Finder cards", port of Tailwinds). */}
+                <table className={`finder-table finder-pax${canPick ? ' finder-pickable' : ''}`} style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)' }}>
                       {canPick && (
@@ -679,9 +680,9 @@ export default function RouteFinder({ onPick, standalone = false }) {
                       const proj     = r.projection;
                       const picked   = pickedKeys.has(pickKey(origin, r.code));
                       return (
-                        <tr key={r.code} style={{ borderTop: '1px solid var(--border-subtle)', opacity: r.block ? 0.55 : 1, background: picked ? 'rgba(56,139,253,0.08)' : undefined }}>
+                        <tr className="finder-row" key={r.code} style={{ borderTop: '1px solid var(--border-subtle)', opacity: r.block ? 0.55 : 1, background: picked ? 'rgba(56,139,253,0.08)' : undefined }}>
                           {canPick && (
-                            <td style={{ padding: '7px 4px 7px 12px', width: 1 }}>
+                            <td className="fc-pick" style={{ padding: '7px 4px 7px 12px', width: 1 }}>
                               {!r.block && (
                                 <input
                                   type="checkbox"
@@ -698,7 +699,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               )}
                             </td>
                           )}
-                          <td style={{ padding: '7px 12px' }}>
+                          <td className="fc-dest" style={{ padding: '7px 12px' }}>
                             <span style={{ fontWeight: 700 }}>{a.code}</span>
                             <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{a.city}, {a.country}</span>
                             <span style={{ color: 'var(--text-dim)', marginLeft: 6, fontSize: 11 }}>{regionLabel(r.region)}</span>
@@ -724,8 +725,8 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               </span>
                             )}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.distKm.toLocaleString()} km</td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <td className="fc-stat fc-dist" data-label="Distance" style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{r.distKm.toLocaleString()} km</td>
+                          <td className="fc-stat fc-market" data-label="Market" style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                             <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
                               {r.demand.toLocaleString()}<span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-dim)' }}> /wk</span>
                             </div>
@@ -733,16 +734,16 @@ export default function RouteFinder({ onPick, standalone = false }) {
                               ×{seasonal.toFixed(2)} season
                             </div>
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <td className="fc-stat fc-served" data-label="Served" style={{ padding: '7px 12px', textAlign: 'right' }}>
                             <ServedCell served={r.served ?? servedOf(r)} />
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>${r.refPrice}</td>
-                          <td style={{ padding: '7px 12px' }}>
+                          <td className="fc-stat fc-fare" data-label="Ref fare" style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>${r.refPrice}</td>
+                          <td className="fc-stat fc-rivals" data-label="Rivals" style={{ padding: '7px 12px' }}>
                             {r.laneRivalCount === 0
                               ? <span style={{ fontSize: 12, color: 'var(--green)' }}>None</span>
                               : <span style={{ fontSize: 12, color: 'var(--yellow)' }}>{r.laneRivalCount} airline{r.laneRivalCount !== 1 ? 's' : ''}</span>}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', opacity: r.refreshing ? 0.55 : 1 }}
+                          <td className="fc-stat fc-load" data-label="Est. load" style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', opacity: r.refreshing ? 0.55 : 1 }}
                               title={staleTip(r)}>
                             {proj
                               ? <span style={{ color: proj.loadFactor >= 0.75 ? 'var(--green)' : proj.loadFactor >= 0.45 ? 'var(--yellow)' : 'var(--red)' }}>
@@ -750,7 +751,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                                 </span>
                               : <span style={{ color: 'var(--text-dim)' }} title={r.block ? 'This aircraft cannot fly here' : forecastReady && !known(keyOf(r)) && pending > 0 ? 'Forecasting…' : forecastReady ? `Outside the ${DEFAULT_SCORE_LIMIT} markets forecast — narrow the search to price it` : 'Pick an aircraft to forecast this market'}>{forecastReady && !r.block && !known(keyOf(r)) && pending > 0 ? '…' : '–'}</span>}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, opacity: r.refreshing ? 0.55 : 1 }}
+                          <td className="fc-stat fc-profit" data-label="Est. profit / wk" style={{ padding: '7px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, opacity: r.refreshing ? 0.55 : 1 }}
                               title={staleTip(r)}>
                             {proj
                               ? <span style={{ color: proj.netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
@@ -758,10 +759,10 @@ export default function RouteFinder({ onPick, standalone = false }) {
                                 </span>
                               : <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>–</span>}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <td className="fc-stat fc-slots" data-label="Your slots" style={{ padding: '7px 12px', textAlign: 'right' }}>
                             <SlotCell code={a.code} freq={7} position={slotPosition} />
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <td className="fc-act" style={{ padding: '7px 12px', textAlign: 'right' }}>
                             {onPick && !r.block && (
                               <button
                                 className="btn btn-ghost"

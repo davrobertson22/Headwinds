@@ -2628,3 +2628,77 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
   }
   .nav-group-menu button { min-height: 40px; }
 }
+
+/* ── Finder cards (mobile batch 2, 2026-11-19) ────────────────────────────────
+   Route Finder (passenger and freight) results on phones. The table is ~960px
+   wide, so a sideways scroll left destination, distance and market on screen
+   and est. load, est. profit and Plan ~600px to the right. Below 640px each
+   row is a card: destination and Plan on top, the deciding figures next, each
+   labelled from its cell's data-label (RouteFinder.jsx / CargoRouteFinder.jsx; port of Tailwinds).
+   The cells carry inline padding and alignment, hence the !important. */
+@media (max-width: 640px) {
+  .finder-table { display: block; }
+  .finder-table thead { display: none; }
+  .finder-table tbody { display: block; }
+  .finder-table tr.finder-row {
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px 10px; padding: 12px; align-items: start;
+  }
+  .finder-table tr.finder-row > td {
+    display: block; min-width: 0;
+    padding: 0 !important; text-align: left !important; width: auto !important;
+    border: none !important;
+  }
+
+  /* Your slots gets the wide spot: with no gate it carries a "+ Gate" button. */
+  .finder-pax tr.finder-row {
+    grid-template-areas:
+      "dest   dest   dest   dest   act    act"
+      "profit profit load   load   market market"
+      "served served rivals rivals dist   dist"
+      "fare   fare   slots  slots  slots  slots";
+  }
+  .finder-pax.finder-pickable tr.finder-row {
+    grid-template-areas:
+      "pick   dest   dest   dest   act    act"
+      "profit profit load   load   market market"
+      "served served rivals rivals dist   dist"
+      "fare   fare   slots  slots  slots  slots";
+  }
+  /* Freight: the rate a kilo is the reference yield times the distance, so
+     the yield itself is left to the desktop table. */
+  .finder-cargo tr.finder-row {
+    grid-template-areas:
+      "dest dest   dest   dest   act    act"
+      "rev  rev    demand demand served served"
+      "dist dist   rate   rate   .      ."
+      "slots slots slots  slots  slots  slots";
+  }
+  .finder-cargo .fc-yield { display: none !important; }
+
+  .fc-pick   { grid-area: pick; align-self: center; }
+  .fc-dest   { grid-area: dest; }
+  .fc-act    { grid-area: act; align-self: center; text-align: right !important; }
+  .fc-profit { grid-area: profit; }
+  .fc-load   { grid-area: load; }
+  .fc-market { grid-area: market; }
+  .fc-served { grid-area: served; }
+  .fc-rivals { grid-area: rivals; }
+  .fc-slots  { grid-area: slots; }
+  .fc-dist   { grid-area: dist; }
+  .fc-fare   { grid-area: fare; }
+  .fc-rev    { grid-area: rev; }
+  .fc-demand { grid-area: demand; }
+  .fc-rate   { grid-area: rate; }
+
+  .fc-stat { font-size: 14px; }
+  .fc-stat::before {
+    content: attr(data-label); display: block; margin-bottom: 1px;
+    font-size: 11px; font-weight: 400; color: var(--text-dim); white-space: nowrap;
+  }
+  .fc-profit { font-size: 15px; }
+  .fc-act .btn { min-height: 40px; padding: 0 14px !important; font-size: 14px !important; }
+  .fc-pick input[type="checkbox"] { width: 22px; height: 22px; }
+  /* SlotCell stacks status over button, right-aligned (inline): side by side here. */
+  .fc-slots > div { flex-direction: row !important; align-items: center !important; flex-wrap: wrap; gap: 4px 10px !important; }
+}

@@ -245,7 +245,8 @@ test('a small airline: every forecast lands in the first slice, and matches scor
 console.log('\n── 7. a gate lease keeps the finder\'s ranking ──────────────────');
 
 // Destination codes in table order.
-const rowCodes = (html) => [...html.matchAll(/<td style="padding:7px 12px"><span style="font-weight:700">([A-Z0-9]{3})<\/span>/g)].map(m => m[1]);
+// (The cell may carry the phone-card class, fc-dest.)
+const rowCodes = (html) => [...html.matchAll(/<td(?: class="[^"]*")? style="padding:7px 12px"><span style="font-weight:700">([A-Z0-9]{3})<\/span>/g)].map(m => m[1]);
 // Render until the progress line is gone (SSR runs no effects: one slice a render).
 function settle(st) {
   let html = '';

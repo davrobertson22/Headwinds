@@ -383,7 +383,8 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
               </div>
               <OriginSlotsLine code={originAirport.code} freq={7} position={slotPosition} />
               <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                {/* finder-table/fc-*: phone cards (index.css "Finder cards", port of Tailwinds). */}
+                <table className="finder-table finder-cargo" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)' }}>
                       {[
@@ -408,8 +409,8 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                       const { airport: a, dist, demand, refYield, revPotential } = r;
                       const inRange = maxFleetRange >= dist;
                       return (
-                        <tr key={a.code} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '7px 12px' }}>
+                        <tr className="finder-row" key={a.code} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                          <td className="fc-dest" style={{ padding: '7px 12px' }}>
                             <span style={{ fontWeight: 700 }}>{a.code}</span>
                             <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{a.city}, {a.country}</span>
                             {inRange && maxFleetRange > 0 && (
@@ -424,18 +425,18 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                               </span>
                             )}
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{dist.toLocaleString()} km</td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: ACCENT, whiteSpace: 'nowrap' }}>{demand.toLocaleString()} t<span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-dim)' }}> /wk</span></td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <td className="fc-stat fc-dist" data-label="Distance" style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{dist.toLocaleString()} km</td>
+                          <td className="fc-stat fc-demand" data-label="Cargo demand" style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: ACCENT, whiteSpace: 'nowrap' }}>{demand.toLocaleString()} t<span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-dim)' }}> /wk</span></td>
+                          <td className="fc-stat fc-served" data-label="Served" style={{ padding: '7px 12px', textAlign: 'right' }}>
                             <ServedCell served={r.served ?? servedOf(r)} cargo />
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>${refYield.toFixed(3)}</td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>${(refYield * dist / 1000).toFixed(2)}/kg</td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--green)', whiteSpace: 'nowrap' }} title="Weekly lane revenue at reference yield IF you carried the whole pool — a comparison scale, not a promise">{formatMoney(revPotential)}</td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <td className="fc-stat fc-yield" data-label="Ref yield" style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>${refYield.toFixed(3)}</td>
+                          <td className="fc-stat fc-rate" data-label="≈ Rate" style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>${(refYield * dist / 1000).toFixed(2)}/kg</td>
+                          <td className="fc-stat fc-rev" data-label="Rev potential / wk" style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--green)', whiteSpace: 'nowrap' }} title="Weekly lane revenue at reference yield IF you carried the whole pool — a comparison scale, not a promise">{formatMoney(revPotential)}</td>
+                          <td className="fc-stat fc-slots" data-label="Your slots" style={{ padding: '7px 12px', textAlign: 'right' }}>
                             <SlotCell code={a.code} freq={7} position={slotPosition} />
                           </td>
-                          <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <td className="fc-act" style={{ padding: '7px 12px', textAlign: 'right' }}>
                             {onPick && (
                               <button
                                 className="btn btn-ghost"
