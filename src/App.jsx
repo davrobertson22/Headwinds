@@ -1090,7 +1090,18 @@ function AppInner() {
               {open && menuPos && createPortal(
                 <>
                   <div className="nav-group-backdrop" onClick={() => setOpenGroup(null)} />
-                  <div className="nav-group-menu" role="menu" style={{ top: menuPos.top, left: menuPos.left }}>
+                  <div
+                    className="nav-group-menu"
+                    role="menu"
+                    style={{ top: menuPos.top, left: menuPos.left }}
+                    // The 200px guess above is short once the pin stars are in
+                    // (~280px): measure the real menu and pull it back inside.
+                    ref={(el) => {
+                      if (!el) return;
+                      const over = el.getBoundingClientRect().right - (window.innerWidth - 8);
+                      if (over > 0) el.style.left = `${Math.max(8, menuPos.left - over)}px`;
+                    }}
+                  >
                     {grp.children.map((cid) => {
                       const ct = TABS_BY_ID[cid];
                       const CIcon = ct.Icon;

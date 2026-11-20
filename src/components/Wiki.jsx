@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Glyph } from './Icons.jsx';
+import useIsMobile from '../hooks/useIsMobile.js';
 import { useGame } from '../store/GameContext.jsx';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -902,6 +903,18 @@ export default function Wiki() {
 
   const [activeId, setActiveId] = useState(sections[0].id);
   const [query, setQuery] = useState('');
+  // Phones: one column, with the topic list folded behind a toggle so the
+  // article isn't pushed below ~40 topic buttons.
+  const isMobile = useIsMobile();
+  const [tocOpen, setTocOpen] = useState(false);
+  const articleRef = useRef(null);
+  const pickTopic = (id) => {
+    setActiveId(id);
+    if (isMobile) {
+      setTocOpen(false);
+      requestAnimationFrame(() => articleRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -925,21 +938,39 @@ export default function Wiki() {
         Detailed how-to guides for every part of the game. Pick a topic, or search to jump to what you need.
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 18, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : '240px 1fr', gap: isMobile ? 12 : 18, alignItems: 'start' }}>
         {/* ── Table of contents ── */}
-        <div className="card" style={{ padding: 12, position: 'sticky', top: 12 }}>
+        <div className="card" style={{ padding: 12, position: isMobile ? 'static' : 'sticky', top: 12 }}>
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search the wiki…"
             style={{
               width: '100%', boxSizing: 'border-box', marginBottom: 10,
-              padding: '8px 10px', fontSize: 13,
+              padding: '8px 10px', fontSize: isMobile ? 16 : 13,
               background: 'var(--surface2)', color: 'var(--text)',
               border: '1px solid var(--border)', borderRadius: 8, outline: 'none',
             }}
           />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {isMobile && !query && (
+            <button
+              type="button"
+              onClick={() => setTocOpen(o => !o)}
+              aria-expanded={tocOpen}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 9, width: '100%', minHeight: 44,
+                textAlign: 'left', cursor: 'pointer', padding: '8px 10px', borderRadius: 8,
+                border: '1px solid var(--border)', background: 'var(--surface2)',
+                color: 'var(--text)', fontSize: 14, fontWeight: 600,
+              }}
+            >
+              <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>Topic:</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{active?.title}</span>
+              <span aria-hidden="true" style={{ color: 'var(--text-dim)' }}>{tocOpen ? '▴' : '▾'}</span>
+            </button>
+          )}
+          {(!isMobile || tocOpen || query) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: isMobile && !query ? 8 : 0 }}>
             {filtered.length === 0 && (
               <div style={{ fontSize: 13, color: 'var(--text-dim)', padding: '8px 6px' }}>
                 No topics match “{query}”.
@@ -950,9 +981,10 @@ export default function Wiki() {
               return (
                 <button
                   key={s.id}
-                  onClick={() => setActiveId(s.id)}
+                  onClick={() => pickTopic(s.id)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 9, width: '100%',
+                    minHeight: isMobile ? 40 : undefined,
                     textAlign: 'left', cursor: 'pointer',
                     padding: '8px 10px', borderRadius: 8,
                     border: '1px solid', borderColor: isActive ? 'var(--accent)' : 'transparent',
@@ -968,10 +1000,11 @@ export default function Wiki() {
               );
             })}
           </div>
+          )}
         </div>
 
         {/* ── Content pane ── */}
-        <div className="card" style={{ padding: '24px 28px', minHeight: 400 }}>
+        <div ref={articleRef} className="card" style={{ padding: isMobile ? '18px 16px' : '24px 28px', minHeight: 400, minWidth: 0, scrollMarginTop: 12 }}>
           {active && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>

@@ -2605,3 +2605,26 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
     display: flex; flex-direction: column; justify-content: center;
   }
 }
+
+/* ── Mobile batch 1 (port of Tailwinds 2026-11-16 audit) ──
+   Phone-only, like every block above: desktop is untouched. */
+@media (max-width: 640px) {
+  /* iOS Safari zooms the page in when a text field or select under 16px gets
+     focus, and leaves it zoomed. The 16px fix above only reached
+     .form-input/.form-select (and headwinds-web/styles.css loses to inline
+     sizes); !important beats an inline size. */
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Nav dropdowns: never wider or taller than the screen, and finger-sized rows. */
+  .nav-group-menu {
+    max-width: calc(100vw - 16px);
+    max-height: 70dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .nav-group-menu button { min-height: 40px; }
+}

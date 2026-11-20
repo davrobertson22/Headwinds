@@ -250,10 +250,27 @@ export const BLUE_MARBLE_ATTRIBUTION =
 // draws and for the moment before the first tile lands.
 export const SATELLITE_OCEAN = '#02051a';
 
+/** Phones get the map view until the player picks a layout; the classic
+ *  layout's top bar + tab strip eat a third of a phone screen, while the map
+ *  view's bottom bar and sheets are built for it. Same 640px breakpoint as
+ *  index.css and useIsMobile. (Port of Tailwinds basemap.js.) */
+export const PHONE_QUERY = '(max-width: 640px)';
+function isPhone() {
+  try { return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(PHONE_QUERY).matches; }
+  catch { return false; }
+}
+
+/** 'map' | 'classic': the stored pick, else map on a phone and classic elsewhere. */
+export function effectiveLayout() {
+  let stored = null;
+  try { stored = localStorage.getItem(LAYOUT_KEY); } catch { /* private mode */ }
+  if (stored === 'map' || stored === 'classic') return stored;
+  return isPhone() ? 'map' : 'classic';
+}
+
 /** The basemap a player who has never picked one sees, by layout. */
 export function defaultBasemap() {
-  try { return localStorage.getItem(LAYOUT_KEY) === 'map' ? MAP_FIRST_BASEMAP : DEFAULT_BASEMAP; }
-  catch { return DEFAULT_BASEMAP; }
+  return effectiveLayout() === 'map' ? MAP_FIRST_BASEMAP : DEFAULT_BASEMAP;
 }
 
 /** An unknown or missing value is the default, never a broken map. */

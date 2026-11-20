@@ -15,6 +15,7 @@ import { getAirport } from '../data/airports.js';
 import { tailMaintenanceFn } from '../utils/tailCosts.js';
 import { skippedRouteForecast } from '../utils/skippedRouteForecast.js';
 import InfoTip from './InfoTip.jsx';
+import useIsMobile from '../hooks/useIsMobile.js';
 import {
   allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
   PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
@@ -277,6 +278,7 @@ export default function Finance({ initialView, group = null }) {
 // can see exactly which cost bucket is driving the outcome. Every figure comes
 // from the canonical projection, so it ties out to the P&L bottom line.
 function ProfitWaterfall({ proj, report }) {
+  const isMobile = useIsMobile();
   const { state } = useGame();
   const r = report;
   // Built from the SHARED cost bridge (utils/pnlBridge.js), not a step list
@@ -340,13 +342,13 @@ function ProfitWaterfall({ proj, report }) {
         The company runs at <strong style={{ color: bridge.netMargin >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPercent(bridge.netMargin)}</strong>.
         Everything below the highlighted row is the difference — costs no single route carries.
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr 110px 62px', gap: '4px 12px', alignItems: 'center', fontSize: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '104px minmax(0, 1fr) auto auto' : '210px 1fr 110px 62px', gap: isMobile ? '6px 6px' : '4px 12px', alignItems: 'center', fontSize: 12 }}>
         {rows.map((row, i) => (
           <Fragment key={i}>
             <div title={row.tip ?? ''} style={{
               color: row.anchor ? 'var(--gold)' : row.total ? 'var(--text)' : 'var(--text-muted)',
               fontWeight: row.total ? 700 : 400,
-              paddingLeft: row.total ? 0 : 10,
+              paddingLeft: row.total ? 0 : (isMobile ? 4 : 10),
             }}>{row.label}</div>
             <BarFor row={row} />
             <div style={{ textAlign: 'right', fontWeight: row.total ? 700 : 500,

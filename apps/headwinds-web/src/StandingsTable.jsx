@@ -37,13 +37,34 @@ function StatusChip({ status }) {
   return <span className={`chip chip-${String(status).toLowerCase()}`}>{status}</span>;
 }
 
+// `st-stat` + `data-label`: on phones (styles.css) each row is a card and
+// every figure carries its own label, since the header row is hidden there.
 function StandingsCell({ spec, value }) {
+  const base = `st-stat${spec.key === 'rank' ? ' st-primary' : ''}`;
   if (spec.money) {
     const signed = spec.key === 'rank' || spec.key === 'weeklyProfit';
-    const cls = value == null || !signed ? '' : value < 0 ? 'neg' : 'pos';
-    return <td className={cls}>{fmtSignedMoney(value)}</td>;
+    const cls = value == null || !signed ? '' : value < 0 ? ' neg' : ' pos';
+    return <td className={base + cls} data-label={spec.label}>{fmtSignedMoney(value)}</td>;
   }
-  return <td>{fmtCount(value)}</td>;
+  return <td className={base} data-label={spec.label}>{fmtCount(value)}</td>;
+}
+
+// Phones only (hidden above 640px in styles.css): the column headers that sort
+// the table are hidden with the rest of the header row, so sorting moves here.
+function MobileSortBar({ sort, onSort }) {
+  const current = STANDINGS_SORTS.find((s) => s.key === sort.key) ?? STANDINGS_SORTS[0];
+  return (
+    <div className="standings-sortbar">
+      <label htmlFor="standings-sort">Sort by</label>
+      <select id="standings-sort" value={current.key} onChange={(e) => onSort(e.target.value)}>
+        {STANDINGS_SORTS.map((spec) => <option key={spec.key} value={spec.key}>{spec.long}</option>)}
+      </select>
+      <button type="button" className="standings-sortdir" onClick={() => onSort(current.key)}
+        aria-label={sort.dir === 'desc' ? 'Highest first: tap for lowest first' : 'Lowest first: tap for highest first'}>
+        {sort.dir === 'desc' ? '▼ High' : '▲ Low'}
+      </button>
+    </div>
+  );
 }
 
 function RulesLine({ world, ranking }) {
@@ -143,6 +164,8 @@ export default function StandingsTable({
             : 'No airlines yet, be the first to join.'}
         </p>
       ) : (
+        <>
+        <MobileSortBar sort={sort} onSort={onSort} />
         <table className="worlds standings">
           <thead>
             <tr>
@@ -178,8 +201,8 @@ export default function StandingsTable({
                     data-airline-id={a.id}
                     onClick={() => onToggleRival(a.id)}
                   >
-                    <td style={{ whiteSpace: 'nowrap' }}>{a.rank}<RankMove rank={a.rank} prevRank={a.prevRank} /></td>
-                    <td>
+                    <td className="st-rank" style={{ whiteSpace: 'nowrap' }}>{a.rank}<RankMove rank={a.rank} prevRank={a.prevRank} /></td>
+                    <td className="st-airline">
                       {/* The airline's mark first — preset or upload (served by
                           /logos, cached forever per hash). Older server payloads
                           carry no logoId, and then there's no mark. */}
@@ -208,18 +231,18 @@ export default function StandingsTable({
                         ? <span className="muted small" title={`Last move ${ago.label}`} style={{ marginLeft: 6 }}>· idle {ago.label}</span>
                         : null}
                     </td>
-                    <td>{a.hub}</td>
+                    <td className="st-stat st-hub" data-label="Hub">{a.hub}</td>
                     {STANDINGS_SORTS.map((spec) => (
                       <StandingsCell key={spec.key} spec={spec}
                         value={spec.field === 'fleetSize' ? (a.fleetSize ?? a.fleet ?? null) : a[spec.field]} />
                     ))}
                     {legacy && (
-                      <td title={`Market cap ${fmtMoney(a.marketCap)}`}>{fmtSvps(a.svps)}</td>
+                      <td className="st-stat" data-label="SVPS" title={`Market cap ${fmtMoney(a.marketCap)}`}>{fmtSvps(a.svps)}</td>
                     )}
-                    <td><StatusChip status={a.status} /></td>
+                    <td className="st-stat st-status" data-label="Status"><StatusChip status={a.status} /></td>
                   </tr>
                   {openRivalId === a.id && renderDetail && (
-                    <tr>
+                    <tr className="st-detail-row">
                       <td colSpan={colCount} style={{ padding: 0, border: 'none' }}>
                         {renderDetail(a)}
                       </td>
@@ -230,6 +253,7 @@ export default function StandingsTable({
             })}
           </tbody>
         </table>
+        </>
       )}
     </>
   );

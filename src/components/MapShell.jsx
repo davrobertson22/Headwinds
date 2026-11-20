@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import RouteMap from './RouteMap.jsx';
 import AirlineLogo from './AirlineLogo.jsx';
 import useBasemap from '../hooks/useBasemap.js';
-import { LAYOUT_KEY } from './mapCore.js';
+import { LAYOUT_KEY, effectiveLayout } from './mapCore.js';
 import { formatMoney, formatGameDate } from '../utils/simulation.js';
 import { useAirlineAlerts } from '../utils/airlineAlerts.js';
 import { peekNavFilter, requestNav } from '../utils/navIntent.js';
@@ -80,14 +80,15 @@ function readHintSeen() {
 }
 
 export function readLayout() {
-  try { return localStorage.getItem(LAYOUT_KEY) === 'map' ? 'map' : 'classic'; }
-  catch { return 'classic'; }
+  return effectiveLayout();
 }
 
 export function writeLayout(v) {
   const l = v === 'map' ? 'map' : 'classic';
   try { localStorage.setItem(LAYOUT_KEY, l); } catch { /* private mode */ }
-  if (l === 'map') closeInvite('tried');
+  // Either pick means they know the map view exists (phones start in it
+  // without ever choosing), so the classic layout's invite banner is done.
+  closeInvite('tried');
   return l;
 }
 

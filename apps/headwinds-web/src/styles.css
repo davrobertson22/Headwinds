@@ -500,3 +500,52 @@ table.standings .th-sort:hover { color: var(--text); }
 table.standings .th-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 table.standings th.sorted { color: var(--text); }
 table.standings td { font-variant-numeric: tabular-nums; }
+
+/* ── Standings as cards on phones (mobile audit, 2026-11-19) ──────────────────
+   The table is ~1,160px wide: on a phone the sideways scroll left rank and
+   name on screen and every figure 800px to the right, behind long alliance
+   names. Below 640px each airline is a card: rank and name, then the six
+   figures in a 3×2 grid with their own labels (StandingsTable.jsx data-label),
+   with the hub at the right of the name line. The status chip only shows when
+   it isn't ACTIVE (the server lists active airlines, so nearly always hidden).
+   The header row hides, so sorting moves to a picker. */
+.standings-sortbar { display: none; }
+@media (max-width: 640px) {
+  .standings-sortbar { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+  .standings-sortbar label { width: auto; flex: 0 0 auto; color: var(--muted); font-size: 13px; }
+  .standings-sortbar select { flex: 1; min-width: 0; min-height: 40px; }
+  .standings-sortdir {
+    flex: 0 0 auto; min-height: 40px; padding: 0 12px; border-radius: 8px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    font-size: 14px; cursor: pointer;
+  }
+
+  table.standings { display: block; overflow: visible; white-space: normal; margin-top: 0; }
+  table.standings thead { display: none; }
+  table.standings tbody { display: block; }
+  table.standings tr.rival-row {
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 10px;
+    padding: 12px 8px; border-bottom: 1px solid var(--line);
+  }
+  table.standings tr.rival-row td { display: block; padding: 0; border: none; min-width: 0; background: none; }
+  table.standings tr.me-row { background: var(--accent-soft); border-radius: 8px; }
+  table.standings tr.rival-row:hover td { background: none; }
+  table.standings .st-rank { grid-column: span 1; align-self: start; font-weight: 700; font-size: 16px; }
+  table.standings .st-airline { grid-column: span 3; font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+  table.standings .st-stat { grid-column: span 2; font-size: 14px; }
+  table.standings .st-hub { text-align: right; }
+  table.standings .st-status:has(.chip-active) { display: none; }
+  table.standings .st-stat::before {
+    content: attr(data-label); display: block; margin-bottom: 1px;
+    font-size: 11px; font-weight: 400; color: var(--muted);
+  }
+  table.standings .st-primary { font-weight: 700; }
+  /* Alliance names are free text ("Someone pls join, I welcome anyone"): own
+     line, one line, ellipsis. The full name stays in its title. */
+  table.standings .alliance-tag {
+    display: block; width: fit-content; max-width: 100%; margin: 5px 0 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400;
+  }
+  table.standings tr.st-detail-row,
+  table.standings tr.st-detail-row > td { display: block; }
+}
