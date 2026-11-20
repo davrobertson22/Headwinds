@@ -8087,7 +8087,7 @@ function reducer(state, action) {
       if (!Number.isFinite(coverage) || coverage <= 0 || coverage > 1) return state;
 
       const marketIndex  = state.fuelPrice?.index ?? 1.0;
-      const locked       = hedgeLockedPrice(marketIndex, opt);
+      const locked       = hedgeLockedPrice(marketIndex, opt, calendarYearFrac(state));
       const startAbsWeek = absoluteWeek(state.year, state.week);
       const newContract  = {
         id:            uid(),

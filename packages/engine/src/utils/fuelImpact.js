@@ -29,6 +29,7 @@
 import { effectiveFuelMultiplier, absoluteWeek, hedgeLockedPrice, fuelIndexStatus,
          hedgeUnwindQuote, hedgeWeekSavings, emptyHedgeStats,
          FUEL_BASE_INDEX } from './fuel.js';
+import { calendarYearFrac } from './simulation.js';
 
 /** Hedges live at absolute week `abs` under tickPrep's rule (bought on or before, not yet expired). */
 export function hedgesLiveAt(contracts, abs) {
@@ -183,7 +184,7 @@ export function fuelImpact(state, { lookbacks = [13, 26] } = {}) {
 export function hedgeQuoteDollars(state, durationOpt, coverage) {
   const impact = fuelImpact(state, { lookbacks: [] });
   const marketIndex = state?.fuelPrice?.index ?? FUEL_BASE_INDEX;
-  const locked = hedgeLockedPrice(marketIndex, durationOpt);
+  const locked = hedgeLockedPrice(marketIndex, durationOpt, calendarYearFrac(state));
   const cov = Math.max(0, Math.min(1, Number(coverage) || 0));
   const baseBill = impact?.baseBill ?? 0;
   const billCovered = Math.round(baseBill * cov * locked);
@@ -222,7 +223,8 @@ export function hedgeUnwindDollars(state, contractId) {
   const curAbsWeek  = absoluteWeek(state.year, state.week);
   const marketIndex = state?.fuelPrice?.index ?? FUEL_BASE_INDEX;
   const live = hedgesLiveAt(contracts, curAbsWeek);
-  const q = hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill: impact.baseBill, hedges: live });
+  const q = hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill: impact.baseBill, hedges: live,
+                               calYear: calendarYearFrac(state) });
   if (!q) return null;
   const cash = Number(state?.cash) || 0;
   return {

@@ -17,6 +17,8 @@
  *                         + (1 − hedgedFraction) × marketIndex
  */
 
+import { eraFuelMean } from '../data/era.js';
+
 // ── Reference price ───────────────────────────────────────────────────────────
 
 /**
@@ -131,8 +133,23 @@ export function clampFuelIndex(index, minIndex = FUEL_MIN_INDEX) {
  * This is what a fuel forward curve is, and it is the number a hedge has to be
  * priced against — see hedgeLockedPrice.
  */
-export function expectedMeanIndex(spot, weeks, theta = FUEL_MEAN_REVERSION, base = FUEL_BASE_INDEX) {
+export function expectedMeanIndex(spot, weeks, theta = FUEL_MEAN_REVERSION, base = FUEL_BASE_INDEX, calYear = null) {
   if (!(weeks > 0)) return spot;
+  // Era worlds: the walk reverts to a MOVING historical mean (tickFuelPrice's
+  // meanIndex, data/era.js), so the forward curve has to step the same
+  // expected path week by week, E[x_t+1] = x_t + θ(μ_t+1 − x_t), with μ from
+  // the era curve. Pricing against the classic 1.0 here sold every cheap
+  // decade a lock at roughly double its fuel, and priced a scheduled shock as
+  // if it were not scheduled. Classic worlds (calYear null) and era worlds
+  // past 2026 take the closed form below, byte-identical.
+  if (Number.isFinite(calYear) && eraFuelMean(calYear) != null) {
+    let x = spot, sum = 0;
+    for (let t = 1; t <= weeks; t++) {
+      x += theta * ((eraFuelMean(calYear + t / 52) ?? base) - x);
+      sum += x;
+    }
+    return sum / weeks;
+  }
   const k = 1 - theta;
   // Σ k^t for t = 1..T, divided by T.
   const decay = (k * (1 - Math.pow(k, weeks))) / (theta * weeks);
@@ -239,7 +256,7 @@ export function hedgeWeekSavings(activeHedges = [], marketIndex, baseBill) {
  *
  * @returns {object|null} null when the contract has no weeks left
  */
-export function hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill, hedges = [] }) {
+export function hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill, hedges = [], calYear = null }) {
   if (!contract) return null;
   const remaining = Math.max(0, (Number(contract.expiryAbsWeek) || 0) - (Number(curAbsWeek) || 0));
   if (remaining <= 0) return null;
@@ -247,7 +264,7 @@ export function hedgeUnwindQuote({ contract, marketIndex, curAbsWeek, baseBill, 
   const covEff   = effOf(contract);
   const bill     = Math.max(0, Number(baseBill) || 0);
   const notional = bill * covEff * remaining;
-  const expected = expectedMeanIndex(marketIndex, remaining);
+  const expected = expectedMeanIndex(marketIndex, remaining, FUEL_MEAN_REVERSION, FUEL_BASE_INDEX, calYear);
   const mtm      = notional * (expected - Number(contract.lockedPrice));
   const haircut  = notional * UNWIND_HAIRCUT;
   return {
@@ -345,8 +362,11 @@ export function settleHedgeWeek({ prior = [], active = [], marketIndex, baseBill
  * @param {object} durationOpt   - one entry from HEDGE_DURATIONS
  * @returns {number}
  */
-export function hedgeLockedPrice(marketIndex, durationOpt) {
-  const expected = expectedMeanIndex(marketIndex, durationOpt?.weeks ?? 0);
+export function hedgeLockedPrice(marketIndex, durationOpt, calYear = null) {
+  // calYear: calendarYearFrac(state) — null in classic worlds. Every caller
+  // that sells or previews a lock must pass it, or the quote and the
+  // contract price off different curves.
+  const expected = expectedMeanIndex(marketIndex, durationOpt?.weeks ?? 0, FUEL_MEAN_REVERSION, FUEL_BASE_INDEX, calYear);
   return parseFloat((expected * (1 + (durationOpt?.premium ?? 0))).toFixed(3));
 }
 

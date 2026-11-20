@@ -8,6 +8,7 @@ import {
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
   buildEventDemandModel,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, weeklyGateFeeAt,
+  calendarYearFrac,
 } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { effectiveMaintAgeWeeks } from '../data/maintenance.js';
@@ -4345,8 +4346,11 @@ function FuelHedging() {
   // retired, so at a market index of 0.794 the desk quoted a 26-week lock at
   // 0.873× and then sold the player one at 0.991×.
   const selOpt        = HEDGE_DURATIONS.find(o => o.id === selDuration);
-  const lockedPreview = selOpt ? hedgeLockedPrice(fuelIndex, selOpt) : fuelIndex;
-  const expectedAvg   = selOpt ? expectedMeanIndex(fuelIndex, selOpt.weeks) : fuelIndex;
+  // Era worlds price off the historical fuel curve (calendarYearFrac → null
+  // in classic worlds, which keeps the closed form).
+  const hedgeCy       = calendarYearFrac(state);
+  const lockedPreview = selOpt ? hedgeLockedPrice(fuelIndex, selOpt, hedgeCy) : fuelIndex;
+  const expectedAvg   = selOpt ? expectedMeanIndex(fuelIndex, selOpt.weeks, undefined, undefined, hedgeCy) : fuelIndex;
   const canBuy        = hedgedPct + selCoverage * 100 <= 100;
   // The same lock, in dollars of this week's bill — so "25% at 1.249x" reads as
   // "$50M/wk of fuel fixed at $62M/wk; saves $1.4M/wk if the market holds".
@@ -4502,7 +4506,7 @@ function FuelHedging() {
           <div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>DURATION</div>
             {HEDGE_DURATIONS.map(opt => {
-              const locked = hedgeLockedPrice(fuelIndex, opt);
+              const locked = hedgeLockedPrice(fuelIndex, opt, hedgeCy);
               const isSel  = selDuration === opt.id;
               return (
                 <button key={opt.id} onClick={() => setSelDuration(opt.id)} style={{
