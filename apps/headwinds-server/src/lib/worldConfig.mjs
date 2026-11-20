@@ -259,7 +259,7 @@ export const AI_AIRLINE_SETTINGS = ['light'];
 
 export function validateWorldConfig({
   lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity,
-  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, aiAirlines, stage, startYear, event = null,
+  newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, peakHours, customCatering, aiAirlines, stage, startYear, event = null,
 }) {
   if (startYear != null
     && (!Number.isInteger(startYear) || startYear < MIN_START_YEAR || startYear > MAX_START_YEAR)) {
@@ -294,6 +294,9 @@ export function validateWorldConfig({
   }
   if (hubBanks != null && typeof hubBanks !== 'boolean') {
     throw badRequest('hubBanks must be true or false');
+  }
+  if (peakHours != null && typeof peakHours !== 'boolean') {
+    throw badRequest('peakHours must be true or false');
   }
   if (customCatering != null && typeof customCatering !== 'boolean') {
     throw badRequest('customCatering must be true or false');
@@ -476,6 +479,8 @@ export function serializeWorld(world, { playerCount, aiCount = 0, includeJoinCod
     loyaltyPools: world.tickConfig?.loyaltyPools === true,
     // Hub banks (new worlds from 2026-11-05).
     hubBanks: world.tickConfig?.hubBanks === true,
+    // Peak hours (new worlds from 2026-11-16).
+    peakHours: world.tickConfig?.peakHours === true,
     // Custom catering (new worlds from 2026-11-11).
     customCatering: world.tickConfig?.customCatering === true,
     // Connection seats (new worlds from 2026-11-11).

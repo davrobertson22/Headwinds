@@ -139,7 +139,7 @@ import { tickEncroachment } from './models/encroachment.js';
 import { leaseBuyoutQuote } from './models/leaseBuyout.js';
 import { cleanHex, normalizeAirlineCode } from './utils/logoBranding.js';
 import { leaseAutoRenewSetting, leaseWillAutoRenew, leaseWarnWeeks, LEASE_AUTO_RENEW_TERMS, LEASE_AUTO_RENEW_AT_WEEKS } from './models/leaseRenewal.js';
-import { normalizeStarts, normalizeHubBankSetting } from './models/schedule.js';
+import { normalizeStarts, normalizeHubBankSetting, normalizeHold } from './models/schedule.js';
 import { faresTrimmedUnderCliff } from './models/fareCliff.js';
 import { applyCargoYields } from './models/cargoYieldBulk.js';
 import { inheritedWeeksOpen, rememberClosedPairs } from './models/pairMaturity.js';
@@ -3827,7 +3827,9 @@ function reducer(state, action) {
         if (r.id !== routeId) return r;
         const { rangeStranded: _fixed, ...kept } = r;
         const { schedule: _times, ...rest } = kept;
-        return { ...(targetBusy ? rest : kept), aircraftId: toAircraftId };
+        // A hold (peak-hour worlds) belongs to the route, not to the old week.
+        const held = kept.schedule?.hold != null ? { schedule: { hold: kept.schedule.hold } } : {};
+        return { ...(targetBusy ? { ...rest, ...held } : kept), aircraftId: toAircraftId };
       };
       const nextRoutes = (state.routes ?? []).map(move);
       const nextCargo  = (state.cargoRoutes ?? []).map(move);
@@ -4677,11 +4679,47 @@ function reducer(state, action) {
         const before = r.schedule?.starts ?? [];
         if (starts.length === before.length && starts.every((v, i) => v === before[i])) return r;
         changed = true;
+        // A hold (peak-hour worlds) is the route's, not one flight's: it stays.
+        const hold = r.schedule?.hold != null ? { hold: r.schedule.hold } : {};
         if (!starts.length) {
           const { schedule, ...rest } = r;
+          return r.schedule?.hold != null ? { ...rest, schedule: hold } : rest;
+        }
+        return { ...r, schedule: { starts, ...hold } };
+      };
+      const routes = (state.routes ?? []).map(apply);
+      const cargoRoutes = (state.cargoRoutes ?? []).map(apply);
+      if (!changed) return state;
+      return {
+        ...state,
+        routes: routes.some((r, i) => r !== state.routes[i]) ? routes : state.routes,
+        cargoRoutes: cargoRoutes.some((r, i) => r !== (state.cargoRoutes ?? [])[i]) ? cargoRoutes : state.cargoRoutes,
+      };
+    }
+
+    // action: { holds: { [routeId]: minutes after local midnight | null } } —
+    // peak-hour worlds only. Holds the route's aircraft on the ground at its far
+    // end (its last stop) until that local time, every rotation; null goes back
+    // to the minimum turnaround. Free and instant to set; the tick charges
+    // parking for the time held and the tail's week carries the wait
+    // (models/schedule.js, models/peakHours.js).
+    case 'SET_ROUTE_HOLDS': {
+      if (state.peakHours !== true) return state;
+      const want = action.holds;
+      if (!want || typeof want !== 'object') return state;
+      let changed = false;
+      const apply = (r) => {
+        if (!Object.prototype.hasOwnProperty.call(want, r.id)) return r;
+        const hold = normalizeHold(want[r.id]);
+        if (hold === (r.schedule?.hold ?? null)) return r;
+        changed = true;
+        const { hold: _old, ...sched } = r.schedule ?? {};
+        if (hold == null) {
+          if (Object.keys(sched).length) return { ...r, schedule: sched };
+          const { schedule: _s, ...rest } = r;
           return rest;
         }
-        return { ...r, schedule: { starts } };
+        return { ...r, schedule: { ...sched, hold } };
       };
       const routes = (state.routes ?? []).map(apply);
       const cargoRoutes = (state.cargoRoutes ?? []).map(apply);

@@ -623,7 +623,7 @@ test('the server allow-list carries both plan actions, and the create form sends
   assert.ok(world.includes("'SAVE_CATERING_PLAN', 'DELETE_CATERING_PLAN'"));
   const app = fs.readFileSync(new URL('../apps/headwinds-web/src/App.jsx', import.meta.url), 'utf8');
   assert.ok(/const \[customCatering, setCustomCatering\] = useState\(true\)/.test(app), 'the checkbox defaults to on');
-  assert.ok(/hubBanks,\n\s+\/\/ Always explicit[^\n]*\n\s+customCatering,/.test(app), 'the form sends it explicitly');
+  assert.ok(/\/\/ Always explicit[^\n]*\n\s+customCatering,/.test(app), 'the form sends it explicitly');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

@@ -32,13 +32,71 @@ export async function beginAppRivalStates(tx) {
 /** The value the trigger would have written for a persisted `state`. */
 export const rivalStateFor = (persistedState) => projectRivalState(persistedState);
 
+// Prisma's model writes serialize a Json column's numbers their own way
+// (measured 2026-10-23, @prisma/client 6.19.3 + adapter-pg, ~32,000 values
+// through prisma.airline.updateMany, compared as jsonb in Postgres):
+//   - an integer inside the i64 range: as JavaScript prints it;
+//   - otherwise, if the shortest round-trip form (what JavaScript prints)
+//     has at most 16 significant digits: that form;
+//   - otherwise the EXACT binary value rounded to 16 significant digits,
+//     exact ties to even: 0.015063631343319494 -> 0.01506363134331949,
+//     0.1 + 0.2 -> 0.3, -4.5734405517578125 (a true tie) -> -4.573440551757812,
+//     0.0027553585171699525 (just above a tie) -> 0.002755358517169953.
+// The stored `state` holds those values and rival_state_of(state) copies
+// them, so "rivalState" must too. JSON.stringify keeps 17 digits and raw query
+// parameters are not rounded, so the payload is built here. Only the numeric
+// VALUE has to match: jsonb compares numbers as numerics ("1e21" = "1e+21").
+const I64_LIMIT = 2 ** 63;
+export function prismaJsonNumber(x) {
+  if (!Number.isFinite(x)) return 'null';
+  if (x === 0) return '0';
+  if (Number.isInteger(x) && Math.abs(x) < I64_LIMIT) return String(x);
+  const shortest = Math.abs(x).toExponential();
+  if (shortest.split('e')[0].replace('.', '').length <= 16) return (x < 0 ? '-' : '') + shortest;
+  // Exact decimal expansion (a double's terminates; 100 digits is enough to
+  // tell a true tie at digit 17 from a near one).
+  const [mant, expStr] = Math.abs(x).toExponential(99).split('e');
+  let exp = Number(expStr);
+  const digits = mant.replace('.', '');
+  const head = digits.slice(0, 16);
+  const r = digits[16];
+  const up = r > '5' || (r === '5' && (/[1-9]/.test(digits.slice(17)) || Number(head[15]) % 2 === 1));
+  let ds = (BigInt(head) + (up ? 1n : 0n)).toString();
+  if (ds.length > 16) { ds = ds.slice(0, 16); exp += 1; }
+  const out = ds.replace(/0+$/, '') || '0';
+  const m = out.length > 1 ? `${out[0]}.${out.slice(1)}` : out;
+  return `${x < 0 ? '-' : ''}${m}e${exp}`;
+}
+
+/** JSON text of `value` with numbers rounded as Prisma's Json writes round them. */
+export function prismaJsonText(value) {
+  if (value === null) return 'null';
+  switch (typeof value) {
+    case 'number': return prismaJsonNumber(value);
+    case 'string': case 'boolean': return JSON.stringify(value);
+    case 'bigint': return value.toString();
+    case 'undefined': case 'function': case 'symbol': return undefined;
+    default: break;
+  }
+  if (typeof value.toJSON === 'function') return prismaJsonText(value.toJSON());
+  if (Array.isArray(value)) {
+    return '[' + value.map((v) => prismaJsonText(v) ?? 'null').join(',') + ']';
+  }
+  const parts = [];
+  for (const k of Object.keys(value)) {
+    const v = prismaJsonText(value[k]);
+    if (v !== undefined) parts.push(JSON.stringify(k) + ':' + v);
+  }
+  return '{' + parts.join(',') + '}';
+}
+
 /**
  * Write "rivalState" for each id in `byId` (Map id -> rival state, already
  * projected). One statement; returns the number of rows updated.
  */
 export async function writeRivalStates(tx, byId) {
   if (typeof tx?.$queryRaw !== 'function' || !byId || byId.size === 0) return 0;
-  const payload = JSON.stringify(Object.fromEntries(byId));
+  const payload = prismaJsonText(Object.fromEntries(byId));
   const rows = await tx.$queryRaw`
     UPDATE "Airline" AS a
        SET "rivalState" = v.value

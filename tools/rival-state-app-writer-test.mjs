@@ -26,6 +26,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { loadRivalRows, projectRivalState } from '../apps/headwinds-server/src/lib/humanRivals.mjs';
 import {
   beginAppRivalStates, writeRivalStates, rivalStateFor, RIVAL_STATE_WRITER_SETTING,
+  prismaJsonNumber, prismaJsonText,
 } from '../apps/headwinds-server/src/lib/rivalStateWrite.mjs';
 
 const HEAD = process.env.RIVAL_APP_WRITER_HEAD === '1';
@@ -116,7 +117,10 @@ await test('writeRivalStates stores exactly what the trigger would have (one sta
     const byId = new Map();
     for (const [id, seed] of [['al2', 22], ['al3', 33]]) {
       const persisted = blob(seed, 60);
-      await tx.query(`UPDATE "Airline" SET state = $1::jsonb WHERE id = $2`, [JSON.stringify(persisted), id]);
+      // The tick stores `state` through Prisma, which rounds Json numbers to
+      // 16 significant digits (prismaJsonText mirrors it), and the trigger's
+      // projection reads those stored values.
+      await tx.query(`UPDATE "Airline" SET state = $1::jsonb WHERE id = $2`, [prismaJsonText(persisted), id]);
       byId.set(id, rivalStateFor(persisted));
     }
     const untouched = await rivalCol(tx, 'al1');
@@ -125,6 +129,42 @@ await test('writeRivalStates stores exactly what the trigger would have (one sta
     assert.deepStrictEqual(await rivalCol(tx, 'al1'), untouched, 'al1 not in the map, not touched');
   });
   assert.equal((await rivalCol(db, 'al3')).week, 33, 'committed');
+});
+
+await test('numbers are written as Prisma writes them (the measured rule)', async () => {
+  // Measured 2026-10-23 on @prisma/client 6.19.3 + adapter-pg (lib/rivalStateWrite.mjs).
+  const cases = [
+    [0.015063631343319494, '1.506363134331949e-2'],
+    [0.1 + 0.2, '3e-1'],
+    [-4.5734405517578125, '-4.573440551757812e0'],      // an exact tie: to even
+    [0.0027553585171699525, '2.755358517169953e-3'],    // just above a tie: up
+    [123456789, '123456789'], [0, '0'], [-0, '0'], [NaN, 'null'], [Infinity, 'null'],
+    [100.25, '1.0025e+2'],
+  ];
+  for (const [x, want] of cases) assert.equal(prismaJsonNumber(x), want, String(x));
+  // Only the value matters to jsonb: what Postgres stores equals the decimals
+  // Prisma was measured sending (toPrecision(16) would round the tie away from
+  // zero; Prisma rounds it to even).
+  const sent = [['0.015063631343319494', '0.01506363134331949'], ['0.30000000000000004', '0.3'],
+    ['-4.5734405517578125', '-4.573440551757812'], ['0.0027553585171699525', '0.002755358517169953']];
+  for (const [x, want] of sent) {
+    const { rows } = await db.query(`SELECT ($1::jsonb = $2::jsonb) AS same`, [prismaJsonNumber(Number(x)), want]);
+    assert.equal(rows[0].same, true, `${x} is not stored as ${want}`);
+  }
+  assert.equal(prismaJsonText({ a: [1, 0.1 + 0.2, undefined, 'x'], b: undefined, c: null }), '{"a":[1,3e-1,null,"x"],"c":null}');
+});
+
+await test('a 17-digit state written through Prisma still matches the trigger (HEAD wrote JSON.stringify and did not)', async () => {
+  await db.transaction(async (tx) => {
+    const t = rawOver(tx);
+    await beginAppRivalStates(t);
+    const persisted = blob(77, 50);   // fuelIndex 0.1 + 0.2 + i/100 etc. need all 17 digits
+    assert.ok(JSON.stringify(persisted) !== prismaJsonText(persisted), 'fixture has 17-digit numbers');
+    await tx.query(`UPDATE "Airline" SET state = $1::jsonb WHERE id = 'al2'`, [prismaJsonText(persisted)]);
+    await writeRivalStates(t, new Map([['al2', rivalStateFor(persisted)]]));
+    assert.deepStrictEqual(await rivalCol(tx, 'al2'), await sqlProjection(tx, 'al2'));
+    await tx.rollback();
+  });
 });
 
 console.log('\n── 3. The mark is transaction-local ───────────────────────────');
@@ -150,7 +190,7 @@ await test('loadRivalRows returns the app-written projection', async () => {
     const t = rawOver(tx);
     await beginAppRivalStates(t);
     const persisted = blob(66, 30);
-    await tx.query(`UPDATE "Airline" SET state = $1::jsonb WHERE id = 'al1'`, [JSON.stringify(persisted)]);
+    await tx.query(`UPDATE "Airline" SET state = $1::jsonb WHERE id = 'al1'`, [prismaJsonText(persisted)]);
     await writeRivalStates(t, new Map([['al1', rivalStateFor(persisted)]]));
   });
   const row = (await loadRivalRows(prisma, 'w1')).find((r) => r.id === 'al1');

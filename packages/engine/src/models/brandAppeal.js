@@ -51,6 +51,7 @@ const TERM_INFO = {
                   leisure:  { up: 'Cruise and tour partners' } },
   loyalty:      { name: 'Loyalty', up: 'Loyal members', down: "Rivals' loyalty schemes" },
   jetAge:       { name: 'Aircraft', up: 'Jets against propeller rivals', down: 'Propellers against jets' },
+  timetable:    { name: 'Timetable', up: 'Flights at the hours travellers want', down: 'Flights at awkward hours' },
   newcomer:     { name: 'New on the route', up: 'Established on your routes', down: 'Still new on some routes' },
 };
 

@@ -85,6 +85,9 @@ export async function createWorld(prisma, {
   // Hub banks (engine models/schedule.js): ON for new worlds unless the
   // creator passes false.
   hubBanks,
+  // Peak hours (engine models/peakHours.js): ON for new worlds unless the
+  // creator passes false.
+  peakHours,
   // Custom catering (engine data/cateringPlans.js): ON for new worlds unless
   // the creator passes false.
   customCatering,
@@ -134,7 +137,7 @@ export async function createWorld(prisma, {
     timed = { endAt: end.toISOString(), totalWeeks: weeks };
     lengthYears = Math.ceil(weeks / WEEKS_PER_YEAR);
   }
-  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, customCatering, aiAirlines, stage, startYear, event: eventConfig });
+  validateWorldConfig({ lengthYears, weeksPerDay, visibility, maxPlayers, startingCapital, demandMultiplier, scheduledStartAt, gateScarcity, newWorldRestrictions, crewPipeline, productionLines, productionLineRates, partnerships, demandModel, marketDev, loyaltyPools, hubBanks, peakHours, customCatering, aiAirlines, stage, startYear, event: eventConfig });
   const chosenPassword = (ownerAccountId || password != null) ? validatePassword(password) : null;
   if (ownerAccountId) {
     const problem = supporterSlotProblem(await supporterWorldMemberships(prisma, ownerAccountId));
@@ -211,6 +214,12 @@ export async function createWorld(prisma, {
     // flight connects in 1.5 h. New worlds only: ON unless the creator unticks
     // it; older worlds keep the schedule cosmetic for life.
     ...(hubBanks !== false ? { hubBanks: true } : {}),
+    // Peak hours (Dave, 2026-11-16): every flight is scored by when it leaves
+    // and lands, against the automatic timetable, every landing at mega and
+    // major airports is priced by its hour, and an airline may hold an
+    // aircraft at a route's far end (parking by the hour). New worlds only:
+    // ON unless the creator unticks it; older worlds keep the clock out.
+    ...(peakHours !== false ? { peakHours: true } : {}),
     // Custom catering (Dave, 2026-11-11): airlines build their own service
     // plans from an item menu instead of picking one of five fixed levels.
     // New worlds only: ON unless the creator unticks it; older worlds keep
@@ -395,6 +404,8 @@ export function seedAirlineState(world, { airlineName, hub, fareIndexOverride } 
     ...(tc.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
     // Hub banks, baked at join like the other rule flags.
     ...(tc.hubBanks === true ? { hubBanksWorld: true } : {}),
+    // Peak hours, baked at join like the other rule flags.
+    ...(tc.peakHours === true ? { peakHours: true } : {}),
     // Custom catering, baked at join like the other rule flags.
     ...(tc.customCatering === true ? { cateringPlansWorld: true } : {}),
     // Connection seats, baked at join like the other rule flags.

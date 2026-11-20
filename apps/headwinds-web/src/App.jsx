@@ -397,6 +397,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
   const [partnerships, setPartnerships] = useState(true);
   const [loyaltyPools, setLoyaltyPools] = useState(true);
   const [hubBanks, setHubBanks] = useState(true);
+  const [peakHours, setPeakHours] = useState(true);
   const [customCatering, setCustomCatering] = useState(true);
   // AI airlines (server lib/aiAirlines.mjs) — admin worlds only, off unless chosen.
   const [aiAirlines, setAiAirlines] = useState('off');
@@ -414,7 +415,7 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
     if (!p) return;
     setNewWorldRestrictions(p.nwr); setCrewPipeline(p.crew); setProductionLines(p.lines);
     setPartnerships(p.partners); setDemandV2(p.demand); setMarketDev(p.marketDev);
-    setLoyaltyPools(p.loyalty); setHubBanks(p.hubBanks); setCustomCatering(p.catering); setGateScarcity(p.scarcity);
+    setLoyaltyPools(p.loyalty); setHubBanks(p.hubBanks); setPeakHours(p.peakHours); setCustomCatering(p.catering); setGateScarcity(p.scarcity);
     setStartingCapital(p.capital); setDemandMultiplier(p.demandMult);
   };
   const customised = (fn) => (e) => { setRulePreset('custom'); fn(e); };
@@ -484,6 +485,8 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
           loyaltyPools,
           // Always explicit: the server treats an absent field as ON.
           hubBanks,
+          // Always explicit: the server treats an absent field as ON.
+          peakHours,
           // Always explicit: the server treats an absent field as ON.
           customCatering,
           // Only sent when chosen: the server writes no key otherwise, and refuses it from anyone but an admin.
@@ -779,6 +782,18 @@ export function CreateWorld({ token, me, onCreated, initialOpen = false, initial
             banks or drag flights.
           </span>
         </label>
+        <label style={{ alignItems: 'flex-start' }}>Peak hours
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={peakHours}
+              onChange={customised((e) => setPeakHours(e.target.checked))} />
+            <span className="muted">{peakHours ? 'ON (default) — when flights leave and land sells seats and sets landing fees' : 'Off — the time of day changes nothing'}</span>
+          </span>
+          <span className="muted small">
+            Travellers want the morning and evening peaks, big airports price landings by the
+            hour, and players can hold an aircraft at a route&apos;s far end. Every route is
+            measured against the automatic timetable, so leaving it alone costs nothing.
+          </span>
+        </label>
         <label style={{ alignItems: 'flex-start' }}>Custom catering
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <input type="checkbox" checked={customCatering}
@@ -1022,6 +1037,14 @@ const WORLD_FEATURES = [
     blurb: 'Your timetable matters. Connections at your hubs only work when the flights meet: each hub runs on banks — waves of arrivals, then departures — and the automatic schedule aims every flight at them. Set a hub to more or fewer banks, or to Rolling, in Operations → Schedule, and drag flights to fine-tune.',
   },
   {
+    key: 'peakhours',
+    on: (w) => w.peakHours === true,
+    icon: '🕒',
+    label: () => 'Peak hours',
+    rgb: '230,180,70',
+    blurb: 'When your flights leave and land matters. Business travellers want the morning and evening peaks, leisure travellers like the middle of the day, and nobody wants a 2am departure. Big airports charge more to land at the peaks and less at night. Every route is measured against the automatic timetable, so leaving it alone costs nothing; timing it well wins a few percent. Hold an aircraft at a route\u2019s far end in Operations \u2192 Schedule (parking is charged at big airports).',
+  },
+  {
     key: 'catering',
     on: (w) => w.customCatering === true,
     icon: '🍽️',
@@ -1054,25 +1077,25 @@ export const WORLD_RULE_PRESETS = {
   standard: {
     label: 'Standard (recommended)',
     blurb: 'The current ruleset: restricted leasing, production lines, partners, loyalty pools, hub banks and real-world demand with frequency and pricing rules.',
-    nwr: true, crew: false, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, catering: true, scarcity: false,
+    nwr: true, crew: false, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, peakHours: true, catering: true, scarcity: false,
     capital: 10_000_000, demandMult: 1,
   },
   hardcore: {
     label: 'Hardcore',
     blurb: 'Standard, plus finite gates with auctions and a crew pipeline you must hire and train — and less starting capital.',
-    nwr: true, crew: true, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, catering: true, scarcity: true,
+    nwr: true, crew: true, lines: true, partners: true, demand: true, marketDev: true, loyalty: true, hubBanks: true, peakHours: true, catering: true, scarcity: true,
     capital: 6_000_000, demandMult: 1,
   },
   sandbox: {
     label: 'Sandbox',
     blurb: 'Lease anything, no production queues or gate limits, more capital and demand — for learning and experimenting.',
-    nwr: false, crew: false, lines: false, partners: true, demand: true, marketDev: false, loyalty: true, hubBanks: true, catering: true, scarcity: false,
+    nwr: false, crew: false, lines: false, partners: true, demand: true, marketDev: false, loyalty: true, hubBanks: true, peakHours: true, catering: true, scarcity: false,
     capital: 50_000_000, demandMult: 1.5,
   },
   classic: {
     label: 'Classic',
     blurb: 'The original game: classic demand and none of the newer systems.',
-    nwr: false, crew: false, lines: false, partners: false, demand: false, marketDev: false, loyalty: false, hubBanks: false, catering: false, scarcity: false,
+    nwr: false, crew: false, lines: false, partners: false, demand: false, marketDev: false, loyalty: false, hubBanks: false, peakHours: false, catering: false, scarcity: false,
     capital: 10_000_000, demandMult: 1,
   },
 };

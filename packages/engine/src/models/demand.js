@@ -194,8 +194,8 @@ export function connectingPriceFactor(price, refPrice, quality = 50) {
  * Tune these to change how much price vs quality vs frequency matter.
  */
 export const UTILITY_WEIGHTS = {
-  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0, travelLeisure: 1.0, travelBusiness: 0,   loyalty: 0.5 },
-  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0, travelLeisure: 0,   travelBusiness: 1.0, loyalty: 1.0 },
+  leisure:  { price: 1.8, quality: 0.5, frequency: 0.4, marketing: 2.0, brand: 1.0, lounge: 0,   appeal: 1.0, travelLeisure: 1.0, travelBusiness: 0,   loyalty: 0.5, timetableLeisure: 1.0, timetableBusiness: 0 },
+  business: { price: 0.8, quality: 1.4, frequency: 0.9, marketing: 1.0, brand: 1.0, lounge: 1.0, appeal: 1.0, travelLeisure: 0,   travelBusiness: 1.0, loyalty: 1.0, timetableLeisure: 0,   timetableBusiness: 1.0 },
 };
 
 /**
@@ -1089,6 +1089,12 @@ export function computeUtility(offer, market, segment, out = null) {
   const travelUtil  = Math.log(Math.max(offer.travelLeisureAppeal ?? 1, 0.01)) * (w.travelLeisure ?? 0)
                     + Math.log(Math.max(offer.travelBusinessAppeal ?? 1, 0.01)) * (w.travelBusiness ?? 0);
 
+  // Peak hours (models/peakHours.js; peak-hour games only): when the
+  // airline's flights on this pair leave and land. One segment each, the
+  // travel-partner identity again. Offers without the fields sit at 0.
+  const timetableUtil = Math.log(Math.max(offer.timetableLeisure ?? 1, 0.01)) * (w.timetableLeisure ?? 0)
+                      + Math.log(Math.max(offer.timetableBusiness ?? 1, 0.01)) * (w.timetableBusiness ?? 0);
+
   // Loyalty pools: the airline's member standing on this pair. Share only.
   const loyaltyUtil = Math.log(Math.max(offer.loyaltyAppeal ?? 1, 0.01)) * (w.loyalty ?? 0);
 
@@ -1107,9 +1113,9 @@ export function computeUtility(offer, market, segment, out = null) {
     out.price = priceUtil; out.quality = qualityUtil; out.frequency = freqUtil;
     out.connectivity = connUtil; out.marketing = mktUtil; out.brand = brandUtil;
     out.lounge = loungeUtil; out.airport = appealUtil; out.travel = travelUtil;
-    out.loyalty = loyaltyUtil; out.jetAge = jetUtil;
+    out.loyalty = loyaltyUtil; out.jetAge = jetUtil; out.timetable = timetableUtil;
   }
-  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil + travelUtil + loyaltyUtil + jetUtil;
+  return priceUtil + qualityUtil + freqUtil + connUtil + mktUtil + brandUtil + loungeUtil + appealUtil + travelUtil + loyaltyUtil + jetUtil + timetableUtil;
 }
 
 /**
@@ -1124,7 +1130,7 @@ export function awarenessRampUtil(market, offer) {
 
 /** The terms of {@link computeUtility}, by name, plus their `total`. */
 export const UTILITY_PARTS = ['price', 'quality', 'frequency', 'connectivity', 'marketing', 'brand',
-  'lounge', 'airport', 'travel', 'loyalty', 'jetAge'];
+  'lounge', 'airport', 'travel', 'loyalty', 'jetAge', 'timetable'];
 
 /**
  * computeUtility, term by term: { price, quality, frequency, connectivity,
@@ -1761,8 +1767,9 @@ function _soloCeiling(market, offer, ref, { foldBusiness = false } = {}) {
   const noBusiness = offer.businessPrice == null || !((offer.businessSeats ?? 0) > 0);
   // Travel partners scale their own segment's pool, as in _monopolyResult —
   // folded business travellers keep the business appeal.
-  const tpL = Math.max(0, offer.travelLeisureAppeal ?? 1);
-  const tpB = Math.max(0, offer.travelBusinessAppeal ?? 1);
+  // Peak hours scale their own segment's pool the same way (1 elsewhere).
+  const tpL = Math.max(0, offer.travelLeisureAppeal ?? 1) * Math.max(0, offer.timetableLeisure ?? 1);
+  const tpB = Math.max(0, offer.travelBusinessAppeal ?? 1) * Math.max(0, offer.timetableBusiness ?? 1);
   // Demand model v4: what this offer's own timetable could serve alone — the
   // same schedule term _monopolyResult applies (1 everywhere else).
   const sL = scheduleConvenience(offer.weeklyFrequency, 'leisure', market.distanceKm);
@@ -1841,8 +1848,11 @@ function _monopolyResult(market, offer) {
   // would not otherwise have flown. Each scales its own segment's pool only —
   // before elasticity and the capacity cap, like loungePool — and business
   // travellers folded into economy keep the business appeal.
-  const travelLeisurePool  = Math.max(0, offer.travelLeisureAppeal ?? 1);
-  const travelBusinessPool = Math.max(0, offer.travelBusinessAppeal ?? 1);
+  // Peak hours (peak-hour games): a timetable at awkward hours loses
+  // travellers to not flying, one that leaves and lands when they want gains
+  // a few — each segment's own pool, like the travel partners (1 elsewhere).
+  const travelLeisurePool  = Math.max(0, offer.travelLeisureAppeal ?? 1) * Math.max(0, offer.timetableLeisure ?? 1);
+  const travelBusinessPool = Math.max(0, offer.travelBusinessAppeal ?? 1) * Math.max(0, offer.timetableBusiness ?? 1);
   // Schedule demand (demand model v4; exactly 1 otherwise): the share of the
   // pair's travellers this timetable can serve, normalised to a daily service
   // (utils/market.js scheduleConvenience). A traveller the schedule cannot

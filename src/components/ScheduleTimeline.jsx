@@ -3,7 +3,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { isOutOfService, groundedKind } from '../data/maintenance.js';
-import { currentGameDate } from '../utils/simulation.js';
+import { currentGameDate, formatMoney } from '../utils/simulation.js';
 import { utcOffsetMinutes } from '../data/timezones.js';
 import {
   WEEK_MIN, wrapWeek, snapMin, airlineWeeks, canPlace, pinsAfterMove, pinsAfterUnpin,
@@ -13,6 +13,7 @@ import {
   pinsForTimetable, blockerFor,
 } from '../models/schedule.js';
 import HubBanksPanel from './HubBanksPanel.jsx';
+import { peakHoursOf, PEAK_DEPARTURE, departureBandName, landingBandName } from '../models/peakHours.js';
 import { gameClockAt } from './gameClock.js';
 import useIsMobile from '../hooks/useIsMobile.js';
 import { Glyph } from './Icons.jsx';
@@ -138,8 +139,9 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
     return list.map(r => {
       if (!Object.prototype.hasOwnProperty.call(pending, r.id)) return r;
       const starts = pending[r.id];
-      if (!starts?.length) { const { schedule, ...rest } = r; return rest; }
-      return sameList(starts, r.schedule?.starts ?? []) ? r : { ...r, schedule: { starts } };
+      const hold = r.schedule?.hold != null ? { hold: r.schedule.hold } : null;
+      if (!starts?.length) { const { schedule, ...rest } = r; return hold ? { ...rest, schedule: hold } : rest; }
+      return sameList(starts, r.schedule?.starts ?? []) ? r : { ...r, schedule: { starts, ...hold } };
     });
   }, [pending]);
   const routes = useMemo(() => withPending(stateRoutes), [stateRoutes, withPending]);
@@ -149,7 +151,14 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
   const hubBanksWorld = state.hubBanksWorld === true;
   const weeks = useMemo(() => airlineWeeks({ ...scheduleInputsOf(state), fleet, routes, cargoRoutes }, month),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fleet, routes, cargoRoutes, month, state.hubs, state.hubBanks, state.hubBanksWorld]);
+    [fleet, routes, cargoRoutes, month, state.hubs, state.hubBanks, state.hubBanksWorld, state.peakHours]);
+  // Peak-hour worlds: what the week on screen is worth against the automatic
+  // one, built the way the tick builds it (pending nudges included).
+  const peakOn = state.peakHours === true;
+  const peak = useMemo(() => (peakOn
+    ? peakHoursOf({ ...scheduleInputsOf(state), fleet, routes, cargoRoutes }, month) : null),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [peakOn, fleet, routes, cargoRoutes, month, state.hubs, state.hubBanks, state.hubBanksWorld]);
   // Hub-bank worlds: the waves, and who meets whom at each hub — built from
   // the week on screen (pending nudges included), the same way the tick does.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,6 +199,7 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
           cargo: !!info?.cargo,
           frequency: info?.r.weeklyFrequency ?? 0,
           hasPins: !!info?.r.schedule?.starts?.length,
+          hold: info?.r.schedule?.hold ?? null,   // peak-hour worlds
           // The real rotation length — what a tray drag previews and is
           // checked with, even when none of its flights is on the timeline.
           dur: (info && type ? routeRotation(info.r, type)?.durMin : null) ?? 120,
@@ -304,7 +314,7 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
   // latest values through `live`), so a memoised row re-renders only when its
   // own data changes.
   const live = useRef({});
-  live.current = { rows, pxPerMin, zoneOff, labelW, flush, queue, bankCtx };
+  live.current = { rows, pxPerMin, zoneOff, labelW, flush, queue, bankCtx, dispatch };
 
   const [dragView, setDragView] = useState(null);   // what the dragged row draws
   const dragRef = useRef(null);
@@ -395,7 +405,11 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
     };
     const resetRow = (acId) => {
       const row = rowOf(acId);
-      if (row) live.current.flush(Object.fromEntries(row.routeIds.map(id => [id, null])));
+      if (!row) return;
+      live.current.flush(Object.fromEntries(row.routeIds.map(id => [id, null])));
+      // Holds go too: automatic means minimum turnaround.
+      const held = row.routeIds.filter(id => row.meta[id]?.hold != null);
+      if (held.length) live.current.dispatch({ type: 'SET_ROUTE_HOLDS', holds: Object.fromEntries(held.map(id => [id, null])) });
     };
     const setTrack = (acId, el) => { if (el) trackRefs.current.set(acId, el); else trackRefs.current.delete(acId); };
 
@@ -564,7 +578,7 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
     return () => el.removeEventListener('touchmove', stop);
   }, [hasRows]);
 
-  const anyPins = rows.some(r => r.week.blocks.some(b => b.pinned));
+  const anyPins = rows.some(r => r.week.blocks.some(b => b.pinned) || r.routeIds.some(id => r.meta[id].hold != null));
   const [confirmAll, setConfirmAll] = useState(false);
   useEffect(() => {
     if (!confirmAll) return undefined;
@@ -575,8 +589,13 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
     if (!confirmAll) { setConfirmAll(true); return; }
     setConfirmAll(false);
     const out = {};
-    for (const r of rows) for (const id of r.routeIds) if (r.meta[id].hasPins) out[id] = null;
+    const holds = {};
+    for (const r of rows) for (const id of r.routeIds) {
+      if (r.meta[id].hasPins) out[id] = null;
+      if (r.meta[id].hold != null) holds[id] = null;
+    }
     flush(out);
+    if (Object.keys(holds).length) dispatch({ type: 'SET_ROUTE_HOLDS', holds });
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -609,7 +628,12 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
           the planes on the globe{hubBanksWorld
             ? <>, and at your hubs it decides who can connect: flights that meet in a bank carry connecting
               passengers, flights that miss one don&apos;t. The automatic schedule banks every hub for you.</>
-            : <>; it doesn&apos;t change demand or costs.</>}
+            : peakOn ? null : <>; it doesn&apos;t change demand or costs.</>}{peakOn
+            ? <>{hubBanksWorld ? ' ' : '. '}When flights leave and land also sells seats and sets landing fees: travellers
+              want the morning and evening peaks, big airports charge more for them, and nights are cheap but empty. Every
+              route is measured against the automatic timetable, so leaving it alone costs nothing. Click a flight to hold
+              its aircraft at the far end until a time you choose (parking is charged at big airports).</>
+            : null}
           {isMobile ? ' Hold a flight for a moment, then drag.' : ''}
         </div>
       </div>
@@ -659,6 +683,11 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
               {shown.length} aircraft
             </div>
             <div className="sched-track sched-days" style={{ width: fullW }}>
+              {peakOn && selBlock
+                && peakShades(selBlock.stops[0], zoneOff, pxPerMin).map(s => (
+                  <div key={s.key} className={`sched-band is-${s.kind}`} style={{ left: s.left, width: s.width }}
+                    aria-hidden="true" />
+                ))}
               {DAYS.map((d, i) => (
                 <div key={d} className="sched-day" style={{ left: i * 1440 * pxPerMin, width: 1440 * pxPerMin }}>
                   <span>{d}</span>
@@ -700,6 +729,8 @@ export default function ScheduleTimeline({ initialSelection = null } = {}) {
           panelRef={panelRef}
           row={selRow} b={selBlock} zoneOff={zoneOff}
           bankCtx={bankCtx} tt={tt}
+          peak={peak}
+          onSetHold={(v) => dispatch({ type: 'SET_ROUTE_HOLDS', holds: { [selBlock.routeId]: v } })}
           notice={notice && notice.acId === selRow.a.id && notice.routeId === selBlock.routeId ? notice : null}
           onRetime={(tod) => api.current.retime(selRow.a.id, selBlock, tod)}
           onSetTimetable={(ttRows) => api.current.setTimetable(selRow.a.id, selBlock, ttRows)}
@@ -723,7 +754,7 @@ const ScheduleRow = memo(function ScheduleRow({ row, labelW, fullW, pxPerMin, zo
     m[b.routeId] = (m[b.routeId] ?? 0) + 1;
   }
   const overflow = Object.fromEntries(row.week.overflow.map(o => [o.routeId, o.count]));
-  const rowPins = row.week.blocks.some(b => b.pinned);
+  const rowPins = row.week.blocks.some(b => b.pinned) || row.routeIds.some(id => row.meta[id]?.hold != null);
   const toX = (utc) => wrapWeek(utc + zoneOff) * pxPerMin;
   const sorted = row.week.blocks;   // already by start
   const selIdx = selKey ? sorted.findIndex(b => b.key === selKey) : -1;
@@ -960,7 +991,7 @@ export function timetableNotice(res, { off = 0, name = () => 'another flight' } 
  * The rows start from what the route flies now (models/schedule.js
  * timetableRows) and nothing changes until Set timetable.
  */
-export function TimetableForm({ origin, pair, tail, flights, dur, banked = false, initialRows, onSet }) {
+export function TimetableForm({ origin, pair, tail, flights, dur, banked = false, held = false, initialRows, onSet }) {
   const nextId = useRef(0);
   const [rows, setRows] = useState(() => initialRows.map(r => ({
     id: ++nextId.current, text: r.tod == null ? '' : clockLabel(r.tod), days: [...r.days],
@@ -995,7 +1026,7 @@ export function TimetableForm({ origin, pair, tail, flights, dur, banked = false
       <div className="sched-tt-head">
         <strong>Whole week</strong>
         <span className="sched-meta">
-          {pair} on {tail} · {flights} flights a week · {durLabel(dur)} round trip{banked ? ' (longer when it waits for a bank)' : ''} · times are local at {origin}
+          {pair} on {tail} · {flights} flights a week · {durLabel(dur)} round trip{banked ? ' (longer when it waits for a bank)' : held ? ' (with the hold)' : ''} · times are local at {origin}
         </span>
       </div>
       {rows.map((r, i) => (
@@ -1055,7 +1086,66 @@ function FlightTime({ origin, day, tod, onSet }) {
   );
 }
 
-function BlockDetail({ panelRef, row, b, zoneOff, notice, onNudge, onPin, onUnpin, onRetime, onSetTimetable, onClose, bankCtx = null, tt = null, onSnap }) {
+/** Peak-hour worlds: the shading behind the day header for a selected flight —
+ *  the business peaks and the dead of night, local at its origin. */
+function peakShades(origin, zoneOff, pxPerMin) {
+  const off = utcOffsetMinutes(getAirport(origin));
+  const out = [];
+  PEAK_DEPARTURE.forEach(([from, to, biz], i) => {
+    const kind = biz >= 1.05 ? 'peak' : biz <= 0.7 ? 'night' : null;
+    if (!kind) return;
+    for (let d = 0; d < 7; d++) {
+      const a = wrapWeek(d * DAY_MIN + from - off + zoneOff);
+      const len = to - from;
+      const parts = a + len <= WEEK_MIN ? [[a, len]] : [[a, WEEK_MIN - a], [0, a + len - WEEK_MIN]];
+      parts.forEach(([st, l], j) => out.push({ key: `${i}-${d}-${j}`, kind, left: st * pxPerMin, width: l * pxPerMin }));
+    }
+  });
+  return out;
+}
+
+const fmtX = (v) => `×${(v ?? 1).toFixed(2)}`;
+const fmtPct = (v) => { const p = Math.round(((v ?? 1) - 1) * 100); return p === 0 ? 'as automatic' : `${p > 0 ? '+' : '−'}${Math.abs(p)}%`; };
+
+/** Peak-hour worlds: hold every flight of a route at its far end until a local time. */
+function HoldControl({ code, hold, groundMin, held, unheld, onSet }) {
+  const [text, setText] = useState(() => (hold == null ? '' : clockLabel(hold)));
+  const t = text.trim() === '' ? null : parseClock(text);
+  const bad = text.trim() !== '' && t == null;
+  const go = () => { if (t != null) { setText(clockLabel(snapClock(t))); onSet(snapClock(t)); } };
+  const id = `sched-hold-${code}`;
+  return (
+    <div className="sched-hold">
+      <div className="sched-detail-actions">
+        <label className="sched-meta" htmlFor={id}>Every flight: wait at {code} and leave at</label>
+        <input
+          id={id} className="sched-time" type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
+          value={text} placeholder="—" maxLength={8} aria-invalid={bad ? 'true' : undefined}
+          title={`Local time at ${code}. Leave it empty for the minimum turnaround.`}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); go(); } }}
+        />
+        <button type="button" className="btn btn-ghost sched-btn" onClick={go} disabled={t == null}>Hold</button>
+        {hold != null && (
+          <button type="button" className="btn btn-ghost sched-btn" onClick={() => { setText(''); onSet(null); }}>
+            No hold
+          </button>
+        )}
+      </div>
+      <div className="sched-meta">
+        {hold == null
+          ? `No hold: the aircraft leaves ${code} after its minimum turnaround (${durLabel(groundMin)} here).`
+          : unheld
+            ? `This flight turns round as usual: the aircraft's week has no room for the wait, or the route has already left ${code} at ${clockLabel(hold)} that day.`
+            : held
+              ? `On the ground at ${code} for ${durLabel(groundMin)} on this flight. Parking is charged by the hour at big airports, and the aircraft can fly nothing else meanwhile.`
+              : `This flight lands too late to wait for ${clockLabel(hold)}, so it turns round as usual.`}
+      </div>
+    </div>
+  );
+}
+
+function BlockDetail({ panelRef, row, b, zoneOff, notice, onNudge, onPin, onUnpin, onRetime, onSetTimetable, onClose, bankCtx = null, tt = null, onSnap, peak = null, onSetHold }) {
   const m = row.meta[b.routeId] ?? {};
   const origin = b.stops[0];
   const off = utcOffsetMinutes(getAirport(origin));
@@ -1076,8 +1166,13 @@ function BlockDetail({ panelRef, row, b, zoneOff, notice, onNudge, onPin, onUnpi
     const dep = t, arr = t + l.flightMin;
     t += l.flightMin + l.turnMin;
     const fo = utcOffsetMinutes(getAirport(l.from)), to = utcOffsetMinutes(getAirport(l.to));
-    return { ...l, depLocal: weekLabel(dep + fo), arrLocal: weekLabel(arr + to) };
+    return { ...l, depLocal: weekLabel(dep + fo), arrLocal: weekLabel(arr + to),
+      // Peak-hour worlds: what the hours mean to travellers and to the airport.
+      ...(peak ? { depBand: departureBandName(dep + fo), landBand: landingBandName(getAirport(l.to)?.tier, arr + to) } : {}) };
   });
+  const turn = b.stops.length - 2;
+  const holdAt = b.stops[b.stops.length - 1];
+  const pf = peak ? peak.routes.get(b.routeId) : null;
   return (
     <div className="sched-detail card" ref={panelRef}>
       <div className="sched-detail-head" aria-live="polite">
@@ -1094,6 +1189,7 @@ function BlockDetail({ panelRef, row, b, zoneOff, notice, onNudge, onPin, onUnpi
             <span className="sched-arrow">→</span>
             <span className="sched-leg-code">{l.to}</span> {l.arrLocal}
             <span className="sched-meta"> · {Math.floor(l.flightMin / 60)}h{pad2(l.flightMin % 60)}</span>
+            {l.depBand && <span className="sched-meta"> · leaves in the {l.depBand}{l.landBand ? `, lands in the ${l.landBand} slot price` : ''}</span>}
           </div>
         ))}
         <div className="sched-meta">Local times at each airport.</div>
@@ -1140,11 +1236,27 @@ function BlockDetail({ panelRef, row, b, zoneOff, notice, onNudge, onPin, onUnpi
           ? <button className="btn btn-ghost sched-btn" onClick={onUnpin}>Unpin (back to automatic)</button>
           : <button className="btn btn-ghost sched-btn" onClick={onPin}>Pin at this time</button>}
       </div>
+      {peak && (
+        <>
+          <HoldControl
+            key={`${b.routeId}|${m.hold ?? ''}`}
+            code={holdAt} hold={m.hold}
+            groundMin={b.legs[turn]?.turnMin ?? 0} held={(b.legs[turn]?.holdMin ?? 0) > 0} unheld={!!b.unheld}
+            onSet={onSetHold}
+          />
+          {pf && (
+            <div className="sched-meta sched-peak">
+              This route against the automatic timetable: business travellers {fmtX(pf.business)}, leisure {fmtX(pf.leisure)},
+              landing fees {fmtPct(pf.slotMult)}{pf.parking > 0 ? `, parking ${formatMoney(pf.parking)} a week` : ''}.
+            </div>
+          )}
+        </>
+      )}
       {flights > 1 && (
         <TimetableForm
           key={formKey}
           origin={origin} pair={`${origin}–${blockCodes(b)}`} tail={row.label} flights={flights} dur={b.dur}
-          banked={typeof row.week.durAt === 'function'}
+          banked={!!row.week.banked} held={m.hold != null}
           initialRows={timetableRows(row.week, b.routeId, off, here.day)}
           onSet={onSetTimetable}
         />

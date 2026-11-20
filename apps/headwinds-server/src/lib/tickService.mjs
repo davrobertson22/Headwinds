@@ -292,6 +292,8 @@ export async function tickWorldOnce(prisma, world, { log = console } = {}) {
       ...(world.tickConfig?.loyaltyPools === true ? { loyaltyPoolsWorld: true } : {}),
       // Hub banks: stamped at join, re-stamped here for the same reason.
       ...(world.tickConfig?.hubBanks === true ? { hubBanksWorld: true } : {}),
+      // Peak hours: stamped at join, re-stamped here for the same reason.
+      ...(world.tickConfig?.peakHours === true ? { peakHours: true } : {}),
       // Custom catering: stamped at join, re-stamped here for the same reason.
       ...(world.tickConfig?.customCatering === true ? { cateringPlansWorld: true } : {}),
       // Connection seats: stamped at join, re-stamped here for the same reason.

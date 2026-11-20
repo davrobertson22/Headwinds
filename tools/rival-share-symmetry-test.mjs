@@ -234,5 +234,71 @@ test("the battle card shows the rival's own quality and share, not blanks or rep
     `A's card shows B at ${rivalShare[1]}%; B's own screen says ${bOnOwn}%`);
 });
 
+// ── Peak hours (peak-hour worlds, 2026-11-16) ────────────────────────────────
+// Each airline's timetable is scored against its own automatic week. A rival
+// must carry ITS factors on its spec, or each tick scores itself on its
+// timetable and the other at par, and the two split the pair differently.
+
+const { peakHoursOf } = await import('../packages/engine/src/models/peakHours.js');
+const { wrapWeek, DAY_MIN } = await import('../packages/engine/src/models/schedule.js');
+/** Every flight of the airline's routes pinned at `tod` local at JFK (UTC−5). */
+function pinnedAt(st, tod) {
+  return { ...st, routes: st.routes.map((r) => {
+    const starts = [];
+    for (let d = 0; d < 7 && starts.length < r.weeklyFrequency; d++) starts.push(wrapWeek(d * DAY_MIN + tod + 5 * 60));
+    return { ...r, weeklyFrequency: starts.length, schedule: { starts } };
+  }) };
+}
+const AP = pinnedAt({ ...airlineState('A', { hubs: { JFK: { tier: 2 } }, rep: 62, awareness: 70, fareMult: 1.6, freq: 14 }), peakHours: true }, 2 * 60);
+const BP = { ...airlineState('B', { hubs: { CDG: { tier: 2 } }, rep: 88, awareness: 45, fareMult: 1.6, freq: 14 }), peakHours: true };
+
+test('peak hours: the fixture really is off par for A and at par for B', () => {
+  const { a, b } = world(AP, BP);
+  const fa = buildPlayerPairOffer(a, a.routes), fb = buildPlayerPairOffer(b, b.routes);
+  assert.ok((fa.timetableBusiness ?? 1) < 0.95, `A's 2am timetable scores ${fa.timetableBusiness}`);
+  assert.ok(Math.abs((fb.timetableBusiness ?? 1) - 1) < 0.02, `B's automatic timetable scores ${fb.timetableBusiness}`);
+});
+
+test("peak hours: a rival's timetable is scored as its own screen scores it", () => {
+  const { a, b } = world(AP, BP);
+  const mkt = pairMarketShare(a, O, D).market;
+  for (const [self, asRival, who] of [[buildPlayerPairOffer(a, a.routes), buildEncroachmentOffer(b.humanRivals[KEY][0], mkt), 'A'],
+    [buildPlayerPairOffer(b, b.routes), buildEncroachmentOffer(a.humanRivals[KEY][0], mkt), 'B']]) {
+    for (const f of ['timetableLeisure', 'timetableBusiness']) {
+      assert.ok(Math.abs((self[f] ?? 1) - (asRival[f] ?? 1)) < 1e-9, `${who}.${f}: ${self[f] ?? 1} as itself, ${asRival[f] ?? 1} as a rival`);
+    }
+  }
+});
+
+test("peak hours: the two players' own shares still sum to 100%", () => {
+  const { a, b } = world(AP, BP);
+  const pa = pairMarketShare(a, O, D), pb = pairMarketShare(b, O, D);
+  assertNotCapacityBound(pa, "A's screen");
+  assertNotCapacityBound(pb, "B's screen");
+  assert.ok(Math.abs(pa.playerShare + pb.playerShare - 1) < 0.001,
+    `A sees ${(pa.playerShare * 100).toFixed(1)}%, B sees ${(pb.playerShare * 100).toFixed(1)}%`);
+  const atPar = world({ ...AP, routes: AP.routes.map(({ schedule, ...r }) => ({ ...r })) }, BP);
+  const par = pairMarketShare(atPar.a, O, D).playerShare;
+  assert.ok(pa.playerShare < par - 0.005, `the 2am timetable should cost A share: ${(pa.playerShare * 100).toFixed(1)}% against ${(par * 100).toFixed(1)}% automatic`);
+});
+
+test("peak hours: each tick books what the rival's screen says", () => {
+  const { a, b } = world(AP, BP);
+  assert.ok(peakHoursOf(a, 6) && peakHoursOf(b, 6), 'both airlines are in a peak-hour world');
+  const pax = (st) => weeklyTick(st).routeResults
+    .filter((r) => st.routes.some((x) => x.id === r.routeId))
+    .reduce((s, r) => s + (r.passengers ?? 0), 0);
+  const aTick = pax(a), bTick = pax(b);
+  const aOnB = pairMarketShare(b, O, D).results[1]?.totalPax, bOnA = pairMarketShare(a, O, D).results[1]?.totalPax;
+  // The screens give the pair's pooled figure; the tick splits it over each
+  // aircraft and its cabins and rounds each part (Math.round per tail, per
+  // cabin), which can add a passenger per aircraft — with or without peak
+  // hours (4,596 v 4,595 on this pair at 1.65x the fare and no peak hours).
+  // A ignored timetable would be off by hundreds here.
+  const slack = (st) => st.routes.length + 1;
+  assert.ok(Math.abs(aTick - aOnB) <= slack(a), `A's tick booked ${aTick}; B's screen says ${aOnB}`);
+  assert.ok(Math.abs(bTick - bOnA) <= slack(b), `B's tick booked ${bTick}; A's screen says ${bOnA}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

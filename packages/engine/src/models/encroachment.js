@@ -180,6 +180,13 @@ export function buildEncroachmentOffer(spec, market) {
     // Solo AI encroachers carry no figure and stay at parity, which is correct:
     // they are the incumbents and the player is the unknown.
     brandReach:        spec.brandReach ?? 1,
+    // Peak hours (peak-hour worlds): a human rival's timetable, scored by their
+    // own tick from their own week (server toRivalSpecs → buildPlayerPairOffer).
+    // Without it each airline would score itself on its timetable and the other
+    // at par, and the two ticks would split the pair differently. Absent
+    // elsewhere: par.
+    ...(spec.timetableLeisure  != null ? { timetableLeisure:  spec.timetableLeisure }  : {}),
+    ...(spec.timetableBusiness != null ? { timetableBusiness: spec.timetableBusiness } : {}),
     // Airport lounges — the same story as brandReach one field up, and it needs
     // the same plumbing for the same reason. A human rival who has built lounges
     // at both ends of a contested pair scores loungeAppeal 1.28 in their OWN

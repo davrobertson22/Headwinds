@@ -590,6 +590,8 @@ export default async function worldRoutes(fastify) {
           loyaltyPools: { type: 'boolean' },
           // Hub banks (default ON; false = the timetable stays cosmetic).
           hubBanks: { type: 'boolean' },
+          // Peak hours (default ON; false = the clock changes nothing).
+          peakHours: { type: 'boolean' },
           // Custom catering (default ON; false = the five classic levels only).
           customCatering: { type: 'boolean' },
           // AI airlines (lib/aiAirlines.mjs) — admin only; createWorld refuses anyone else.

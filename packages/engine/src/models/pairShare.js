@@ -40,6 +40,7 @@ import { buildEncroachmentOffer } from './encroachment.js';
 import { blendJetAgeAppeal, jetAgeFields } from './jetAge.js';
 import { rivalIndexFor, rivalOneStopOffersFor, rivalsOn, isLegacy, runNetworkTick, seatItineraries, connectionLegState } from './network.js';
 import { airlineWeeks, hubTimetable, scheduleInputsOf } from './schedule.js';
+import { peakHoursOf, timetableFieldsFor, peakLandingFee } from './peakHours.js';
 import { getAlliance, allianceMembers } from '../data/alliances.js';
 import { memberPairKeysOf, routeDistance } from '../utils/market.js';
 import { campaignDemandBoostPct } from '../data/overhead.js';
@@ -202,6 +203,9 @@ export function buildPlayerPairOffer(state, pairRoutes) {
     ...stateLoyaltyFields(state, r0.origin, r0.destination),
     // Earned pricing headroom (demand model v4) — the tick attaches it too.
     ...statePricingFields(state, r0.origin, r0.destination),
+    // Peak hours (peak-hour worlds): when this pair's flights leave and land,
+    // from the same timetable the tick reads.
+    ...timetableFieldsFor(peakHoursOf(state, (state.gameDate ?? currentGameDate(state))?.month ?? 6), r0.origin, r0.destination),
     // The jet age (era worlds): blended over the pair's schedule by frequency,
     // as the tick's multi-aircraft pre-pass does.
     ...jetAgeFields(blendJetAgeAppeal(jetItems, routeDistanceKm(r0.origin, r0.destination))),
@@ -1034,6 +1038,12 @@ export function projectRouteAddition(state, spec) {
     // repricing preview of an existing route keeps that route's own setting.
     ...(spec.tankering != null ? { tankering: spec.tankering }
       : fuelStationsOn(state) ? { tankering: 'auto' } : {}),
+    // A route being changed keeps its timetable (pins and, in peak-hour
+    // worlds, its hold): the tick will fly it at the same times.
+    ...(() => {
+      const was = replacesRouteId ? (state.routes ?? []).find(r => r.id === replacesRouteId) : null;
+      return was?.schedule ? { schedule: was.schedule } : {};
+    })(),
   };
 
   // Your OTHER routes on this pair. A route being edited is replaced, not joined —
@@ -1138,6 +1148,9 @@ export function projectRouteAddition(state, spec) {
       // attaches the same fields.
       ...stateTravelPartnerFields(state, origin, destination, gameDate?.month ?? null),
       ...stateLoyaltyFields(state, origin, destination),
+      // Peak hours: the pair's timetable with this route on its tail, as the
+      // tick will build it.
+      ...timetableFieldsFor(peakHoursOf(stateForOffer, gameDate?.month ?? 6), origin, destination),
       ...statePricingFields(state, origin, destination),
       ...(state.partnershipsWorld === true ? { travelPartnerTrack: true } : {}),
       // Hub station / layover / maintenance discounts, exactly as the tick
@@ -1170,7 +1183,10 @@ export function projectRouteAddition(state, spec) {
     // On a 10x/week narrowbody trunk that is $62k/wk — enough to flip the sign:
     // the old form advertised +$64k/wk on a route the tick books at -$3k/wk.
     const type = getAircraftType(aircraft.typeId);
-    const landingFee = routeLandingFee(route, type, weeklyFrequency);
+    // Peak-hour worlds: each landing at the price of its hour, plus parking,
+    // from the timetable with this route on its tail — what the tick charges.
+    const landingFee = peakLandingFee(peakHoursOf(stateForOffer, gameDate?.month ?? 6), PREVIEW_ROUTE_ID,
+      routeLandingFee(route, type, weeklyFrequency));
     return {
       result: {
         ...result,

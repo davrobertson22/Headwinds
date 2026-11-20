@@ -677,6 +677,10 @@ function selfScoredTerms(selfView, pairRoutes) {
     priceSensitivityReduction: offer.priceSensitivityReduction ?? 0,
     marketingBoost:            offer.marketingBoost ?? 0,
     brandReach:                offer.brandReach ?? 1,
+    // Peak hours (peak-hour worlds): the rival's own timetable factors, so both
+    // ticks score the pair alike. Only carried when off par.
+    ...(offer.timetableLeisure  != null && offer.timetableLeisure  !== 1 ? { timetableLeisure:  offer.timetableLeisure }  : {}),
+    ...(offer.timetableBusiness != null && offer.timetableBusiness !== 1 ? { timetableBusiness: offer.timetableBusiness } : {}),
   };
 }
 

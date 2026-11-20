@@ -32,7 +32,7 @@ import { normalizeLivery, isLiveryShaped } from '@tailwinds/engine/data/livery.j
 import { cleanHex, normalizeAirlineCode } from '@tailwinds/engine/utils/logoBranding.js';
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
-import { normalizeStarts, normalizeHubBankSetting } from '@tailwinds/engine/models/schedule.js';
+import { normalizeStarts, normalizeHubBankSetting, normalizeHold } from '@tailwinds/engine/models/schedule.js';
 import { CARGO_BULK_YIELD_BATCH, CARGO_BULK_YIELD_MODES, CARGO_BULK_PCT_MIN, CARGO_BULK_PCT_MAX, CARGO_BULK_DELTA_MAX } from '@tailwinds/engine/models/cargoYieldBulk.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
@@ -388,6 +388,27 @@ function guardSetRouteSchedules(payload, state) {
   }
   if (Object.keys(schedules).length === 0) throw new GuardError('Unknown route.');
   return { schedules };
+}
+
+// Holds (peak-hour worlds): only this airline's routes, each time cleaned to a
+// 5-minute local time of day (or null for the minimum turnaround). Charters
+// don't exist here; the reducer ignores other worlds.
+function guardSetRouteHolds(payload, state) {
+  if (state?.peakHours !== true) throw new GuardError('Peak hours are not part of this world.');
+  const want = payload?.holds;
+  if (!want || typeof want !== 'object' || Array.isArray(want)) throw new GuardError('No holds.');
+  const own = new Set([...(state.routes ?? []), ...(state.cargoRoutes ?? [])].map((r) => r?.id));
+  const ids = Object.keys(want);
+  if (ids.length === 0 || ids.length > 5000) throw new GuardError('Too many routes in one change.');
+  const holds = {};
+  for (const id of ids) {
+    if (!own.has(id)) continue;
+    const v = want[id];
+    if (v != null && typeof v !== 'number') throw new GuardError('A hold is a time of day in minutes.');
+    holds[id] = normalizeHold(v);
+  }
+  if (Object.keys(holds).length === 0) throw new GuardError('Unknown route.');
+  return { holds };
 }
 
 // Hub banks: only this airline's designated hubs, each setting cleaned (an
@@ -908,6 +929,7 @@ export function guardDecision(type, payload, state) {
     case 'SET_ROUTE_TANKERING': return guardSetRouteTankering(payload, state);
     case 'SET_ROUTE_SCHEDULES': return guardSetRouteSchedules(payload, state);
     case 'SET_HUB_BANKS': return guardSetHubBanks(payload, state);
+    case 'SET_ROUTE_HOLDS': return guardSetRouteHolds(payload, state);
     case 'BUY_FUEL_STAKE':
     case 'BUILD_FUEL_FARM':
     case 'CLOSE_FUEL_FARM':     return guardFarmCode(payload);

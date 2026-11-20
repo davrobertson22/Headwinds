@@ -32,6 +32,7 @@ import {
 import { normalizeCateringRef } from '../data/cateringPlans.js';
 import CateringSelector from './CateringSelector.jsx';
 import { Glyph, GlyphLabel } from './Icons.jsx';
+import { peakHoursOf } from '../models/peakHours.js';
 import { worldDemandMultOf } from '../models/economyCycle.js';
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
@@ -664,6 +665,25 @@ export default function RouteDetail({ origin, dest, rrById = {}, onBack }) {
           <Glyph e="⚠" /> <strong style={{ color: 'var(--yellow)' }}>Capacity-limited.</strong> Your aircraft are essentially full and ~{unmetDemandAll.toLocaleString()} pax/wk can't get a seat. Cutting fares won't lift load here · you're seat-bound, not demand-bound. To carry more, add frequency or aircraft; to earn more on the seats you have, raise fares toward the point where load starts to dip.
         </div>
       )}
+
+      {/* Peak-hour worlds: what this pair's timetable is worth against the automatic one. */}
+      {(() => {
+        const peak = playerRoutes.length > 0 ? peakHoursOf(state, gameDate.month) : null;
+        if (!peak) return null;
+        const f = peak.demandFor(origin, dest);
+        const fees = playerRoutes.map(r => peak.routes.get(r.id)).filter(Boolean);
+        const slot = fees.length ? fees.reduce((s, x) => s + x.slotMult, 0) / fees.length : 1;
+        const parking = fees.reduce((s, x) => s + x.parking, 0);
+        const p = Math.round((slot - 1) * 100);
+        return (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+            <Glyph e="🕒" /> Timetable against the automatic one: business ×{f.business.toFixed(2)} · leisure ×{f.leisure.toFixed(2)}
+            {' · '}landing fees {p === 0 ? 'unchanged' : `${p > 0 ? '+' : '−'}${Math.abs(p)}%`}
+            {parking > 0 ? ` · parking $${parking.toLocaleString()}/wk` : ''}.
+            {' '}Set times and holds in Company ▸ Operations ▸ Schedule.
+          </div>
+        );
+      })()}
 
       {/* Row 1: Market overview + Market share side by side */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginBottom: 12 }}>

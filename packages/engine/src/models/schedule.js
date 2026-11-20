@@ -137,7 +137,9 @@ export function aircraftWeek(routes, type, seed = '', staggerMin = null, bank = 
     if (f <= 0) continue;
     const rot = routeRotation(r, type);
     if (!rot) continue;
-    items.push({ route: r, rot, count: f, pins: normalizeStarts(r.schedule?.starts, f) });
+    items.push({ route: r, rot, count: f, pins: normalizeStarts(r.schedule?.starts, f),
+      // Peak-hour games: the player may hold the aircraft at the far end.
+      hold: bank?.peak ? routeHold(r) : null });
   }
   const blocks = [], demoted = [], overflow = [];
   if (!items.length) return { blocks, overflow, demoted, busyMin: 0, anchor: 0 };
@@ -147,6 +149,8 @@ export function aircraftWeek(routes, type, seed = '', staggerMin = null, bank = 
     for (const it of items) it.banked = !bank.cargoIds?.has(it.route.id) && touchesBanks(it.rot, bank.ctx);
     if (items.some(it => it.banked)) return bankedWeek(items, seed, staggerMin, bank.ctx);
   }
+  // Peak-hour game: the daytime week. Otherwise the code below, unchanged.
+  if (bank?.peak) return dayWeek(items, seed, staggerMin);
 
   // 1. Pins first, in route order; one that collides with an earlier pin is
   //    demoted to automatic rather than drawn on top of it.
@@ -159,7 +163,6 @@ export function aircraftWeek(routes, type, seed = '', staggerMin = null, bank = 
       } else demoted.push({ routeId: it.route.id, start: s });
     }
   }
-
   // 2. The ideal automatic week: every rotation in interleaved order, evenly
   //    spaced, the first leaving between 06:00 and 09:00 local at the first
   //    route's origin — staggered per tail so two aircraft on one pair don't
@@ -347,7 +350,10 @@ export function airlineWeeks(state, month) {
     }
   }
   const ctx = bankContextOf(state);
-  const bank = ctx ? { ctx, cargoIds: new Set((state?.cargoRoutes ?? []).map(r => r?.id)) } : null;
+  const peak = state?.peakHours === true;
+  const bank = ctx || peak
+    ? { ctx, cargoIds: new Set((state?.cargoRoutes ?? []).map(r => r?.id)), ...(peak ? { peak: true } : {}) }
+    : null;
   const weeks = new Map();
   for (const [acId, routes] of byAc) {
     const ac = (state.fleet ?? []).find(a => a.id === acId);
@@ -364,6 +370,7 @@ export function scheduleInputsOf(state) {
   return {
     fleet: state?.fleet ?? [], routes: state?.routes ?? [], cargoRoutes: state?.cargoRoutes ?? [],
     hubs: state?.hubs, hubBanks: state?.hubBanks, hubBanksWorld: state?.hubBanksWorld,
+    peakHours: state?.peakHours,   // peak-hour games: the daytime week and holds
   };
 }
 
@@ -374,9 +381,9 @@ export function scheduleInputsOf(state) {
 const WEEK_CACHE = new Map();
 const WEEK_CACHE_MAX = 4000;
 function cachedWeek(routes, type, seed, staggerMin, bank = null) {
-  const sig = [type.id, seed, staggerMin ?? '', bank?.ctx?.sig ?? '', ...routes.map(r => [
+  const sig = [type.id, seed, staggerMin ?? '', bank?.ctx?.sig ?? '', bank?.peak ? 'P' : '', ...routes.map(r => [
     r.id, r.weeklyFrequency, routeStops(r).join('-'), (r.schedule?.starts ?? []).join('.'),
-    bank?.cargoIds?.has(r.id) ? 'c' : '',
+    bank?.cargoIds?.has(r.id) ? 'c' : '', bank?.peak ? (routeHold(r) ?? '') : '',
   ].join(':'))].join('|');
   const hit = WEEK_CACHE.get(sig);
   if (hit) return hit;
@@ -526,16 +533,24 @@ const waveStagger = (staggerMin, seed) => {
  * Waits ride in each leg's turnMin (so everything that walks legs stays
  * right) and in waitMin. Without banks, the rotation itself.
  */
-export function timedRotation(rot, start, ctx, stagger = 0) {
-  if (!ctx || !rot || !touchesBanks(rot, ctx)) return rot;
+export function timedRotation(rot, start, ctx, stagger = 0, hold = null) {
+  const banked = !!ctx && !!rot && touchesBanks(rot, ctx);
+  if (!rot || (!banked && hold == null)) return rot;
   const legs = rot.legs, n = legs.length;
+  // The leg that lands at the far end (the last stop of a multi-stop route):
+  // where a hold is taken.
+  const turn = hold == null ? -1 : (rot.stops?.length ?? (n / 2 + 1)) - 2;
   const out = [];
-  let t = start, total = 0;
+  let t = start, total = 0, bankTotal = 0, holdTotal = 0;
   for (let i = 0; i < n; i++) {
     const l = legs[i];
     const arr = t + l.flightMin;
-    let wait = 0;
-    if (i < n - 1) {
+    let wait = 0, held = false;
+    if (i === turn) {
+      // The player's hold wins over any bank wait at that stop.
+      wait = holdWait(l.to, arr + l.turnMin, hold);
+      held = true;
+    } else if (banked && i < n - 1) {
       const base = arr + l.turnMin;
       const here = ctx.plans.get(l.to);
       if (here) {
@@ -550,11 +565,24 @@ export function timedRotation(rot, start, ctx, stagger = 0) {
         if (j < n) wait = bankWait(ctx.plans.get(legs[j].to), -BANK_ARR_LEAD + stagger, base + ahead);
       }
     }
-    out.push(wait ? { ...l, turnMin: l.turnMin + wait, waitMin: wait, ...(wait > BANK_MAX_WAIT ? { overnight: true } : {}) } : l);
+    out.push(!wait ? l : held
+      ? { ...l, turnMin: l.turnMin + wait, holdMin: wait }
+      : { ...l, turnMin: l.turnMin + wait, waitMin: wait, ...(wait > BANK_MAX_WAIT ? { overnight: true } : {}) });
     total += wait;
+    if (held) holdTotal += wait; else bankTotal += wait;
     t = arr + l.turnMin + wait;
   }
-  return total ? { ...rot, legs: out, durMin: rot.durMin + total, waitMin: total } : rot;
+  return total ? {
+    ...rot, legs: out, durMin: rot.durMin + total,
+    ...(bankTotal ? { waitMin: bankTotal } : {}), ...(holdTotal ? { holdMin: holdTotal } : {}),
+  } : rot;
+}
+
+/** Minutes from `earliest` (UTC week minutes) to the next `hold` (minutes
+ *  after local midnight) at airport `code`: under a day, 0 when it is now. */
+function holdWait(code, earliest, hold) {
+  const off = utcOffsetMinutes(getAirport(code));
+  return ((((hold - (earliest + off)) % DAY_MIN) + DAY_MIN) % DAY_MIN);
 }
 
 /** Starts that put a rotation's first banked hub on a wave: leaving it just
@@ -585,7 +613,9 @@ function bankedWeek(items, seed, staggerMin, ctx) {
   items = [...items].sort((a, b) => byCodePoint(a.rot.stops.join('-'), b.rot.stops.join('-')) || byCodePoint(a.route.id, b.route.id));
   const blocks = [], demoted = [], overflow = [];
   const stag = waveStagger(staggerMin, seed);
-  const timing = (it, s) => (it.banked ? timedRotation(it.rot, s, ctx, stag) : it.rot);
+  // A peak-hour game's hold (it.hold) rides in the same timing.
+  const plainTiming = (it, s) => (it.hold != null ? timedRotation(it.rot, s, null, 0, it.hold) : it.rot);
+  const timing = (it, s) => (it.banked ? timedRotation(it.rot, s, ctx, stag, it.hold ?? null) : plainTiming(it, s));
   const mk = (it, start, pinned) => {
     const r = timing(it, start);
     return {
@@ -593,15 +623,20 @@ function bankedWeek(items, seed, staggerMin, ctx) {
       routeId: it.route.id, start, dur: r.durMin, legs: r.legs, stops: r.stops,
       pinned, n: blocks.filter(b => b.routeId === it.route.id).length,
       ...(r.waitMin ? { waitMin: r.waitMin } : {}),
+      ...(r.holdMin ? { holdMin: r.holdMin } : {}),
     };
   };
   const fitsAt = (it, s) => fitsAmong(s, timing(it, s).durMin, blocks);
   // A flight that can't be fitted with its bank waits flies without them
   // (`plain`): banking may cost connections, never a flight.
-  const mkPlain = (it, start) => ({
-    key: `${it.route.id}#a${start}`, routeId: it.route.id, start, dur: it.rot.durMin,
-    legs: it.rot.legs, stops: it.rot.stops, pinned: false, n: 0, plain: true,
-  });
+  const mkPlain = (it, start) => {
+    const r = plainTiming(it, start);
+    return {
+      key: `${it.route.id}#a${start}`, routeId: it.route.id, start, dur: r.durMin,
+      legs: r.legs, stops: r.stops, pinned: false, n: 0, plain: true,
+      ...(r.holdMin ? { holdMin: r.holdMin } : {}),
+    };
+  };
 
   // 1. Pins, as in aircraftWeek — each at its own banked length.
   for (const it of items) {
@@ -659,9 +694,18 @@ function bankedWeek(items, seed, staggerMin, ctx) {
       if (at == null && it.banked) {
         for (let m = 0; m < WEEK_MIN; m += SNAP_MIN) {
           const c = snapMin(ready + m);
+          if (fitsAmong(c, plainTiming(it, c).durMin, blocks)) { at = c; break; }
+        }
+        if (at != null) { const pb = mkPlain(it, at); blocks.push(pb); ready += wrapWeek(at - ready) + pb.dur; continue; }
+      }
+      if (at == null && it.hold != null) {
+        // No room for the hold either: this one turns round as usual. A hold
+        // may cost parking and time, never a flight.
+        for (let m = 0; m < WEEK_MIN; m += SNAP_MIN) {
+          const c = snapMin(ready + m);
           if (fitsAmong(c, it.rot.durMin, blocks)) { at = c; break; }
         }
-        if (at != null) { blocks.push(mkPlain(it, at)); ready += wrapWeek(at - ready) + it.rot.durMin; continue; }
+        if (at != null) { blocks.push(unheldBlock(it, at)); ready += wrapWeek(at - ready) + it.rot.durMin; continue; }
       }
       if (at == null) { missing.set(it.route.id, (missing.get(it.route.id) ?? 0) + 1); continue; }
       blocks.push(mk(it, at, false));
@@ -1106,4 +1150,223 @@ export function pinsForTimetable(week, routeId, rows, off = 0) {
     bumped: late.filter(t => t.at != null).map(t => ({ day: t.day, tod: t.tod, at: t.at, by: t.by })),
     auto: late.filter(t => t.at == null).map(t => ({ day: t.day, tod: t.tod, by: t.by })),
   };
+}
+
+// ── Peak-hour games: the daytime week and holds ───────────────────────────────
+// Peak-hour games (state.peakHours, new games from 2026-11-12) score every
+// departure by its local time and price every landing by the hour
+// (models/peakHours.js). The automatic week therefore stops spreading a tail's
+// flying evenly round the clock, which put about a third of short-haul
+// departures in the dead of night: each day's rotations are spread over that
+// day's waking hours instead, 06:00 to 23:00 local at the first route's
+// origin, the first leaving 06:00–09:00 (the tail's stagger). A tail led by a
+// long sector is timed to land at the far end at 07:00–10:00 local instead.
+// A tail with more flying than a day's window holds runs on into the night,
+// as it must; nothing is dropped that the old week would have flown.
+//
+// Holds: the player may keep an aircraft on the ground at the far end of a
+// route until a local time of their choosing (route.schedule.hold, minutes
+// after local midnight at the turn airport). Every rotation of the route
+// waits there for the next such time after its minimum turnaround — under a
+// day, overnight allowed. A hold is ground time, not block time, so the
+// block-hour cap is untouched; what it costs is the tail's week and parking
+// (models/peakHours.js). Banked weeks take holds too (bankedWeek).
+
+/** Waking hours the automatic week spreads a day's rotations over. */
+export const DAY_WINDOW_MIN = 17 * 60;
+/** A first sector this long times the tail's day by its arrival, not departure. */
+export const LONG_LEAD_MIN = 6 * 60;
+/** The longest hold the automatic week plans; a pinned flight may wait up to a day. */
+export const HOLD_AUTO_MAX_MIN = 18 * 60;
+
+/** A stored hold cleaned: minutes after local midnight in 5-minute steps, or null. */
+export function normalizeHold(v) {
+  if (v == null || v === '') return null;
+  const m = Number(v);
+  if (!Number.isFinite(m)) return null;
+  return ((Math.round(m / SNAP_MIN) * SNAP_MIN) % DAY_MIN + DAY_MIN) % DAY_MIN;
+}
+
+/** The route's hold at its far end, or null (automatic: minimum turnaround). */
+export function routeHold(route) {
+  return route?.charter ? null : normalizeHold(route?.schedule?.hold);
+}
+
+/** The airport a route's hold is taken at: its destination, or last stop. */
+export function holdAirport(route) {
+  const s = routeStops(route);
+  return s[s.length - 1] ?? null;
+}
+
+/** The local day (0–6) a held rotation leaves its far end, for a rotation
+ *  (or block) with \`legs\` and \`stops\` leaving at \`start\`. */
+function holdDay(start, rot) {
+  const turn = rot.stops.length - 2;
+  let t = start;
+  for (let i = 0; i <= turn; i++) t += rot.legs[i].flightMin + rot.legs[i].turnMin;
+  const off = utcOffsetMinutes(getAirport(rot.legs[turn].to));
+  return Math.floor(wrapWeek(t + off) / DAY_MIN);
+}
+
+/** A held route's rotation flown without its hold (no room in the week). */
+function unheldBlock(it, start) {
+  return {
+    key: `${it.route.id}#a${start}`, routeId: it.route.id, start, dur: it.rot.durMin,
+    legs: it.rot.legs, stops: it.rot.stops, pinned: false, n: 0, unheld: true,
+  };
+}
+
+function dayWeek(items, seed, staggerMin) {
+  const blocks = [], demoted = [], overflow = [];
+  const stagger = Number.isFinite(staggerMin) ? staggerMin : seedUnit(seed) * 180;
+  const timing = (it, s) => (it.hold != null ? timedRotation(it.rot, s, null, 0, it.hold) : it.rot);
+  const mk = (it, start, pinned) => {
+    const r = timing(it, start);
+    return {
+      key: `${it.route.id}#${pinned ? 'p' : 'a'}${start}`,
+      routeId: it.route.id, start, dur: r.durMin, legs: r.legs, stops: r.stops,
+      pinned, n: 0,
+      ...(r.holdMin ? { holdMin: r.holdMin } : {}),
+      ...(it.charter ? { charter: true } : {}),
+    };
+  };
+  const fitsAt = (it, s) => fitsAmong(s, timing(it, s).durMin, blocks);
+  const busy = items.reduce((s, it) => s + it.rot.durMin * it.count, 0);
+  const byId = new Map(items.map(it => [it.route.id, it]));
+  const finish = (anchor) => {
+    blocks.sort((a, b) => a.start - b.start);
+    const nth = {};
+    for (const b of blocks) b.n = (nth[b.routeId] = (nth[b.routeId] ?? -1) + 1);
+    return {
+      blocks, overflow, demoted, busyMin: busy, anchor, daytime: true,
+      /** How long a rotation of `routeId` takes if it leaves at `start` (holds). */
+      durAt: (routeId, start) => { const it = byId.get(routeId); return it ? timing(it, start).durMin : null; },
+      /** The legs of a rotation of `routeId` leaving at `start` (drag previews). */
+      legsAt: (routeId, start) => { const it = byId.get(routeId); return it ? timing(it, start).legs : null; },
+    };
+  };
+
+  // 0. Charters first, exactly where aircraftWeek puts them.
+  for (const it of items) {
+    if (!it.charter) continue;
+    const a0 = 6 * 60 + stagger - utcOffsetMinutes(getAirport(it.rot.stops[0]));
+    let missing = 0;
+    for (let k = 0; k < it.count; k++) {
+      const at = firstFit(snapMin(a0 + (k * WEEK_MIN) / it.count), it.rot.durMin, blocks);
+      if (at == null) { missing++; continue; }
+      blocks.push(mk(it, at, false));
+    }
+    if (missing) overflow.push({ routeId: it.route.id, count: missing });
+  }
+  const own = items.filter(it => !it.charter);
+  if (!own.length) return finish(0);
+
+  // 1. Pins, each at its own length (a held rotation's depends on when it leaves).
+  for (const it of own) {
+    it.kept = [];
+    for (const s of it.pins) {
+      if (fitsAt(it, s)) { blocks.push(mk(it, s, true)); it.kept.push(s); }
+      else demoted.push({ routeId: it.route.id, start: s });
+    }
+  }
+
+  // 2. The rest a day at a time, in the nested day order the banked week uses,
+  //    spread over the day's waking hours.
+  const left = own.map(it => ({ ...it, count: Math.max(0, it.count - it.kept.length) })).filter(it => it.count > 0);
+  const order = interleave(left).map(i => left[i]);
+  const total = order.length;
+  const perDay = Array(7).fill(Math.floor(total / 7));
+  for (let k = 0; k < total % 7; k++) perDay[DAY_ORDER[k]]++;
+  const lead = own[0].rot.legs[0];
+  const dayStart = lead.flightMin >= LONG_LEAD_MIN
+    ? (d) => d * DAY_MIN + 7 * 60 + stagger - utcOffsetMinutes(getAirport(lead.to)) - lead.flightMin
+    : (d) => d * DAY_MIN + 6 * 60 + stagger - utcOffsetMinutes(getAirport(lead.from));
+  const anchor = snapMin(dayStart(0));
+  const fixed = blocks.slice();
+  // `tight`: one unbroken chain from the anchor, no day starts and no gaps.
+  // The daytime spread leaves free time in pieces, and rotations of more than
+  // a day may not fit the pieces; the tight chain leaves it in one, so it
+  // flies whatever the week can hold at all (the old week's promise).
+  const place = (tight, holds = true) => {
+    const out = fixed.slice();
+    const missing = new Map();
+    // Holds may not crowd out a flight: a held rotation is placed held only if
+    // the week still has room for every rotation after it at its plain length.
+    let freeMin = WEEK_MIN - out.reduce((s, b) => s + b.dur, 0);
+    let restPlain = order.reduce((s, it) => s + it.rot.durMin, 0);
+    // One held departure a day per route: the hold is a time of day, and a
+    // second rotation that day could only take it tomorrow.
+    const heldDays = new Set(out.filter(b => b.holdMin).map(b => `${b.routeId}|${holdDay(b.start, b)}`));
+    let k = 0, ready = tight ? dayStart(0) : -Infinity;
+    for (let d = 0; d < 7; d++) {
+      const today = order.slice(k, k + perDay[d]);
+      k += perDay[d];
+      if (!today.length) continue;
+      if (!tight) ready = Math.max(ready, dayStart(d));
+      const est = today.reduce((s, it) => s + timing(it, snapMin(ready)).durMin, 0);
+      const gap = tight ? 0 : Math.max(0, (DAY_WINDOW_MIN - stagger - est) / today.length);
+      for (const it of today) {
+        restPlain -= it.rot.durMin;
+        // On the five-minute grid, so a snapped start never reads as a week ahead.
+        ready = Math.ceil(ready / SNAP_MIN) * SNAP_MIN;
+        let at = null;
+        if (it.hold == null || !holds) {
+          for (let m = 0; m < WEEK_MIN && at == null; m += SNAP_MIN) {
+            const c = snapMin(ready + m);
+            if (fitsAmong(c, it.rot.durMin, out)) at = c;
+          }
+        } else {
+          // A held rotation leaves when the aircraft is ready, as any other,
+          // and takes its hold only if the wait is one a timetable would plan
+          // (HOLD_AUTO_MAX_MIN), the week can still fly everything after it,
+          // and the route has not left the far end held that day already.
+          // Otherwise it turns round as usual: the second rotation of the day
+          // on a route held till noon would sit until tomorrow's noon.
+          let c0 = null;
+          for (let m = 0; m < WEEK_MIN && c0 == null; m += SNAP_MIN) {
+            const c = snapMin(ready + m);
+            if (fitsAmong(c, it.rot.durMin, out)) c0 = c;
+          }
+          if (c0 != null) {
+            const r = timing(it, c0);
+            if ((r.holdMin ?? 0) <= HOLD_AUTO_MAX_MIN && !heldDays.has(`${it.route.id}|${holdDay(c0, r)}`)
+              && fitsAmong(c0, r.durMin, out) && freeMin - r.durMin >= restPlain) at = c0;
+          }
+        }
+        let b = null;
+        if (at != null) b = it.hold != null && !holds ? unheldBlock(it, at) : mk(it, at, false);
+        else if (it.hold != null) {
+          // No room for the wait: this rotation turns round as usual. A hold
+          // may cost parking and time, never a flight.
+          for (let m = 0; m < WEEK_MIN && at == null; m += SNAP_MIN) {
+            const c = snapMin(ready + m);
+            if (fitsAmong(c, it.rot.durMin, out)) at = c;
+          }
+          if (at != null) b = unheldBlock(it, at);
+        }
+        if (!b) { missing.set(it.route.id, (missing.get(it.route.id) ?? 0) + 1); continue; }
+        out.push(b);
+        if (b.holdMin) heldDays.add(`${b.routeId}|${holdDay(b.start, b)}`);
+        freeMin -= b.dur;
+        ready += wrapWeek(at - ready) + b.dur + gap;
+      }
+    }
+    let lost = 0;
+    for (const m of missing.values()) lost += m;
+    return { out, missing, lost };
+  };
+  // The daytime spread first; if it loses a flight, the tight chain; if holds
+  // still cost a flight, the automatic flights give up their holds (pinned
+  // ones keep theirs). The first that loses no more than the week must.
+  let best = place(false);
+  for (const [tight, holds] of [[true, true], [false, false], [true, false]]) {
+    if (best.lost === 0) break;
+    if (!holds && !order.some(it => it.hold != null)) break;
+    const t = place(tight, holds);
+    if (t.lost < best.lost) best = t;
+  }
+  blocks.length = 0;
+  blocks.push(...best.out);
+  for (const it of own) { const m = best.missing.get(it.route.id); if (m) overflow.push({ routeId: it.route.id, count: m }); }
+  return finish(anchor);
 }

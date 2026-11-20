@@ -1914,6 +1914,12 @@ input[type="range"].hw-range:focus-visible { outline: 2px solid var(--accent-dim
 .sched-days { height: 28px; }
 .sched-day { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border); font-size: 11px; color: var(--text-muted); padding: 6px 0 0 5px; box-sizing: border-box; }
 .sched-day:first-child { border-left: none; }
+/* Peak-hour worlds: the selected flight's peaks and nights behind the day header. */
+.sched-band { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+.sched-band.is-peak { background: color-mix(in srgb, var(--yellow) 20%, transparent); }
+.sched-band.is-night { background: color-mix(in srgb, var(--text-muted) 16%, transparent); }
+.sched-hold { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--border-subtle); }
+.sched-peak { padding-top: 2px; }
 .sched-hour { position: absolute; top: 9px; font-size: 9px; color: var(--text-dim); transform: translateX(-50%); font-family: var(--font-mono); }
 .sched-day-bg { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border-subtle); }
 .sched-day-bg:nth-child(even) { background: rgba(255,255,255,0.018); }
