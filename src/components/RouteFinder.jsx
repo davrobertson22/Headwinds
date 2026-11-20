@@ -679,7 +679,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
                         { h: 'Destination', right: false },
                         { h: 'Distance',    right: true  },
                         { h: 'Market',      right: true, tip: "The whole city-pair market per week. Airports in one metro share it: JFK–LHR and EWR–LHR are one New York↔London market, not two." },
-                        { h: 'Served',      right: true, tip: "How much of the market is already flown — everyone on the lane, rivals' one-stops over their hubs and your own services included, from the same share fight the weekly results run (at maturity, this month). Low is room for you; near 100% means a new route mostly takes passengers from someone. Hover a figure for who carries what." },
+                        { h: 'Served',      right: true, tip: "How much of the market is already flown — everyone on the lane, rivals' one-stops over their hubs and your own services included, from the same share fight the weekly results run (at maturity, this month). Low is room for you; near 100% means a new route mostly takes passengers from someone. Tap or hover a figure for who carries what." },
                         { h: 'Ref fare',    right: true  },
                         { h: 'Rivals',      right: false, tip: 'Carriers flying this market from any airport in either city.' },
                         { h: 'Est. load',   right: true, tip: 'Projected mature load factor for the selected aircraft at 7 flights a week — the same projection the Route Planner runs.' },

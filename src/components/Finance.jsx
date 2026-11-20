@@ -17,6 +17,7 @@ import { tailMaintenanceFn } from '../utils/tailCosts.js';
 import { skippedRouteForecast } from '../utils/skippedRouteForecast.js';
 import InfoTip from './InfoTip.jsx';
 import useIsMobile from '../hooks/useIsMobile.js';
+import { FINANCE_GROUP_VIEWS } from './financeGroups.js';
 import {
   allocateFixedCosts, pairEconomics, routeProfit, breakEvenLoad,
   PROFIT_LABELS, PROFIT_SHORT, PROFIT_HELP,
@@ -170,19 +171,7 @@ function futureMonth(currentAbsWeek, offsetWeeks) {
 // The map view splits Finance across tabs: Statements, Loans & Forecast,
 // Analysis and Breakdown under Finance, and Fuel under Operations (Barca,
 // Discord 2026-10-29). `group` picks one; omitted, it is the classic page.
-export const FINANCE_GROUP_VIEWS = {
-  statements: ['pl', 'cashflow', 'bs'],
-  planning:   ['forecast', 'loans'],
-  analysis:   ['uniteco', 'trends', 'stats'],
-  breakdown:  ['routes', 'airports'],
-  fuel:       ['fuel'],
-};
-
-/** Which map-view Finance group shows `view` (the classic view ids). */
-export function financeGroupOf(view) {
-  for (const [g, views] of Object.entries(FINANCE_GROUP_VIEWS)) if (views.includes(view)) return g;
-  return null;
-}
+export { FINANCE_GROUP_VIEWS, financeGroupOf } from './financeGroups.js';
 
 function FinanceInner({ initialView, group = null }) {
   const allowed = group ? (FINANCE_GROUP_VIEWS[group] ?? null) : null;

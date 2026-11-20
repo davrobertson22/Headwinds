@@ -100,7 +100,7 @@ const COLUMNS = [
     tip: 'Gateway score: the share of this airport\'s traffic that is transit. A hub here draws outside connecting feed in proportion to it, on top of the connections your own network creates. Only the world\'s big transit hubs are rated individually; every other airport counts as 20%. Ties sort by passenger market.' },
   { id: 'metro',   label: 'Metro',     align: 'right', first: 'desc', tip: 'Metro-area population, as shown when you pick a hub.' },
   { id: 'runway',  label: 'Runway',    align: 'right', first: 'desc', tip: 'Longest runway. Aircraft that need more cannot operate here.' },
-  { id: 'airlines', label: 'Airlines', align: 'right', first: 'desc', tip: 'Airlines flying here now, you included. Hover a number for the names.' },
+  { id: 'airlines', label: 'Airlines', align: 'right', first: 'desc', tip: 'Airlines flying here now, you included. Tap or hover a number for the names.' },
   { id: 'gates',   label: 'Your gates', align: 'right', first: 'desc' },
   { id: 'taken',   label: 'Gates taken', align: 'left', first: 'desc', scarcity: true,
     tip: 'Gate-scarcity worlds: how many of this airport\'s gates every airline holds between them, out of its capacity.' },

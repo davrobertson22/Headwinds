@@ -12,7 +12,7 @@ import { openAlertSettings } from '../utils/alertPrefs.js';
 import { useNavKeys, reachable, cyclePage, keyHint, mapGroupKey, MAP_KEY_DASHBOARD, MAP_KEY_GUIDE, MAP_KEY_SETTINGS } from '../utils/navKeys.js';
 import { BACK_KEY_LABEL } from '../utils/pageHistory.js';
 import { BellIcon } from './Icons.jsx';
-import { financeGroupOf } from './Finance.jsx';
+import { financeGroupOf } from './financeGroups.js';
 import {
   CoinsIcon, SettingsIcon, CloseIcon, SaveIcon, FolderOpenIcon,
   DashboardIcon, MapIcon, SearchIcon, PlannerIcon, RoutesIcon, GateIcon, HubIcon, CalendarIcon,

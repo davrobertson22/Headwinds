@@ -13,7 +13,7 @@ import Dashboard from './components/Dashboard.jsx';
 const Fleet = lazyPage(() => import('./components/Fleet.jsx'), 'Fleet');
 const Routes = lazyPage(() => import('./components/Routes.jsx'), 'Routes');
 const Marketplace = lazyPage(() => import('./components/Marketplace.jsx'), 'Marketplace');
-import Finance from './components/Finance.jsx';
+const Finance = lazyPage(() => import('./components/Finance.jsx'), 'Finance');
 import { ArrowLeftIcon, BellIcon, DashboardIcon, RoutesIcon, FleetIcon, MarketIcon, FinanceIcon, CompetitionIcon, PlannerIcon, GateIcon, OperationsIcon, RepIcon, HubIcon, LoyaltyIcon, PartnerIcon, PlaneIcon, SaveIcon, FolderOpenIcon, AlertIcon, SkullIcon, TrophyIcon, TrendUpIcon, NewsIcon,
   WrenchIcon, SearchIcon, GlobeIcon, BulbIcon,
 } from './components/Icons.jsx';
@@ -49,6 +49,7 @@ import MapShell, { readLayout, writeLayout, MAP_TAB, MAP_PAGES, readInviteOpen, 
 import useNavFavourites from './hooks/useNavFavourites.js';
 import { toggleNavFavourite, NAV_FAVOURITES_LIMIT } from './utils/navFavourites.js';
 import { backdropDismiss } from './utils/backdropDismiss.js';
+import TapTips from './components/TapTips.jsx';
 
 // Build stamp — injected by vite.config.js `define`. Guarded so non-Vite contexts
 // (e.g. node test harnesses that don't import App) never trip over the globals.
@@ -336,6 +337,7 @@ export default function App() {
     <ToastProvider>
       <ConfirmProvider>
         <AppInner />
+        <TapTips />
       </ConfirmProvider>
     </ToastProvider>
   );

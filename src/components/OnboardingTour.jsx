@@ -77,7 +77,7 @@ const STEPS = [
   {
     icon: '🧭',
     title: 'More to Explore',
-    body: "A few features players often miss:\n• Airports ▸ Hubs. Build up a base airport to feed connecting traffic\n• Company ▸ Operations, manage crews, maintenance and reliability\n• Company ▸ Loyalty and Company ▸ Reputation. Grow repeat demand and brand\n• Network ▸ Map and Network ▸ Route Planner, visualise your network and preview a route's profit before you commit\n\nHover the ⓘ icons next to controls anywhere in the game for a quick explanation, and check the Help tab for the full wiki.",
+    body: "A few features players often miss:\n• Airports ▸ Hubs. Build up a base airport to feed connecting traffic\n• Company ▸ Operations, manage crews, maintenance and reliability\n• Company ▸ Loyalty and Company ▸ Reputation. Grow repeat demand and brand\n• Network ▸ Map and Network ▸ Route Planner, visualise your network and preview a route's profit before you commit\n\nTap or hover the ⓘ icons next to controls anywhere in the game for a quick explanation, and check the Help tab for the full wiki.",
     highlight: 'wiki',
   },
   {

@@ -2804,3 +2804,45 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
   .aircraft-stat-pill { padding: 5px 4px; }
   .aircraft-market-body .amc-crew { margin-top: 4px !important; padding: 6px 8px !important; }
 }
+
+/* ── Mobile batch 5 (2026-11-20): polish ───────────────────────────────────── */
+/* TapTips.jsx: a tapped tip, on touch screens. InfoTip's own CSS bubble is
+   turned off there, since TapTips shows the same text kept inside the screen. */
+.tap-tip {
+  position: fixed; z-index: 10000;
+  background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--border-strong, var(--border)); border-radius: 10px;
+  padding: 10px 12px; font-size: 13px; line-height: 1.5; text-align: left;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5); pointer-events: none;
+  white-space: normal; overflow-wrap: anywhere;
+}
+@media (hover: none) {
+  .infotip-bubble { display: none !important; }
+}
+
+/* Phones: classic layout chrome, tap targets and the smallest text. */
+@media (max-width: 640px) {
+  /* Phones start in the map view, so a phone showing the classic layout has
+     chosen it: the "New: Map view" strip only takes ~70px of the screen. */
+  .layout-invite { display: none !important; }
+
+  /* Tap targets: at least 40px for buttons and drop-downs (a finger is ~45px).
+     Inline links and tappable airport codes get an invisible margin instead,
+     so text does not move. Measured offenders on 17 screens: class-less buttons
+     ("Not now", "Last week"), .btn-small, Finance's group tabs, 28px selects,
+     13px check boxes, links 16-19px tall. */
+  button:not([class]), .btn-small, .fin-group-tab, select { min-height: 40px; }
+  input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+  .main-content a:not(.btn), .app-footer-inline a, [role="button"]:not(button) { position: relative; }
+  .main-content a:not(.btn)::after, .app-footer-inline a::after, [role="button"]:not(button)::after {
+    content: ''; position: absolute; inset: -10px -4px;
+  }
+
+  /* Text floor: nothing under 11px. The smallest sizes are mostly inline
+     styles (fontSize: 9-10.5), hence the attribute selectors; React writes
+     them as "font-size: 10px". */
+  [style*="font-size: 9px"], [style*="font-size: 9.5px"],
+  [style*="font-size: 10px"], [style*="font-size: 10.5px"],
+  .aircraft-stat-pill-label, .aircraft-cat-badge { font-size: 11px !important; }
+  .aircraft-stat-pill-label { letter-spacing: 0; }
+}

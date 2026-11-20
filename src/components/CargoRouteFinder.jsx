@@ -407,7 +407,7 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                         { h: 'Destination' },
                         { h: 'Distance',      right: true },
                         { h: 'Cargo Demand',  right: true },
-                        { h: 'Served',        right: true, tip: "How much of the lane's weekly freight is already flown — your freighters (the freight table's own figure) and other airlines' published freighter capacity, at maturity, this month. Low is room for you; near 100% means a new freighter mostly splits the tonnage already there. Hover a figure for who carries what." },
+                        { h: 'Served',        right: true, tip: "How much of the lane's weekly freight is already flown — your freighters (the freight table's own figure) and other airlines' published freighter capacity, at maturity, this month. Low is room for you; near 100% means a new freighter mostly splits the tonnage already there. Tap or hover a figure for who carries what." },
                         { h: 'Ref Yield',     right: true },
                         { h: '≈ Rate',        right: true },
                         { h: 'Rev Potential', right: true },

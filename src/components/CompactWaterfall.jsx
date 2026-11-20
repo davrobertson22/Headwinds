@@ -123,7 +123,7 @@ export default function CompactWaterfall({ proj, state, collapsed = false, onTog
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginTop: 10, fontSize: 11.5, color: 'var(--text-muted)' }}>
             <span>
               Net margin <strong style={{ color: wf.net >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPercent(wf.netMargin)}</strong>
-              {' '}· hover a bar for what's in it
+              {' '}· tap or hover a bar for what's in it
             </span>
             {onOpenFinance && (
               <button type="button" onClick={onOpenFinance}
