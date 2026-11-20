@@ -4498,9 +4498,15 @@ function routeMonthlyHours(route, type) {
  * touches — with block-hour headroom at the per-month peak — takes it.
  *
  * Returns { assignments: [{ routeId, cargo, reserveId, forId }],
- *           gaps: [{ routeId, cargo, forId, revenue, reason }] }.
+ *           gaps: [{ routeId, cargo, forId, revenue, reason, label, bases, fullReserves }] }.
  * Reasons: 'no-reserve' (no same-type reserve based on the route) or
  * 'hours-full' (a matching reserve exists but its weekly hours are spent).
+ * label is the route ("BUF → IAD"); bases are where the same-type reserves on
+ * standby ARE stationed (none of them on this route), for 'no-reserve';
+ * fullReserves names the matching reserves at their cap, for 'hours-full'.
+ * Without them the notice could only say "no same-type reserve based there",
+ * printed under a line saying a same-type reserve had just been dispatched
+ * for the same tail (Discord, Nilla_wafer 2026-11-17). Ported from Tailwinds.
  */
 export function planCovers({ fleet = [], routes = [], cargoRoutes = [], hubs = {}, absWeek = 0, routeRevenues = {} }) {
   const byId = new Map(fleet.map(a => [a.id, a]));
@@ -4585,10 +4591,16 @@ export function planCovers({ fleet = [], routes = [], cargoRoutes = [], hubs = {
       break;
     }
     if (!placed) {
+      const sameType = reserves.filter(res => res.typeId === broken.typeId);
       gaps.push({
         routeId: r.id, cargo, forId: broken.id,
         revenue: routeRevenues[r.id] ?? 0,
         reason:  sawTypeMatch ? 'hours-full' : 'no-reserve',
+        label:   routeStops(r).filter(Boolean).join(' → '),
+        bases:   sawTypeMatch ? [] : [...new Set(sameType.map(res => res.reserveBase))].sort(),
+        fullReserves: sawTypeMatch
+          ? sameType.filter(res => routeTouchesAirport(r, res.reserveBase)).map(res => res.name ?? res.tailNumber ?? res.id)
+          : [],
       });
     }
   }
@@ -4671,18 +4683,40 @@ export function applyReserveCovers({ fleet = [], routes = [], cargoRoutes = [], 
   const endedPairs  = groupPairs(endedRaw).filter(e => !restartKeys.has(`${e.reserve.id}|${e.original.id}`));
   const permanentPairs = groupPairs(permRaw);
 
+  // Reserves flying covers for each tail once this pass is done: a tail can be
+  // partly covered, and the gap notice has to square with the dispatch notice
+  // printed above it.
+  const coveringFor = new Map();
+  for (const list of [rts, crts]) {
+    for (const r of list) {
+      if (!r.coverForAircraftId) continue;
+      if (!coveringFor.has(r.coverForAircraftId)) coveringFor.set(r.coverForAircraftId, new Set());
+      coveringFor.get(r.coverForAircraftId).add(r.aircraftId);
+    }
+  }
   const gapsByFor = new Map();
   for (const g of gaps) {
-    if (!gapsByFor.has(g.forId)) gapsByFor.set(g.forId, { original: nameOf(g.forId), routes: 0, revenueAtRisk: 0, reasons: new Set() });
+    if (!gapsByFor.has(g.forId)) {
+      gapsByFor.set(g.forId, { original: nameOf(g.forId), routes: 0, revenueAtRisk: 0, reasons: new Set(),
+        labels: [], bases: new Set(), fullReserves: new Set() });
+    }
     const e = gapsByFor.get(g.forId);
     e.routes += 1;
     e.revenueAtRisk += g.revenue;
     e.reasons.add(g.reason);
+    if (g.label) e.labels.push(g.label);
+    for (const b of g.bases ?? []) e.bases.add(b);
+    for (const n of g.fullReserves ?? []) e.fullReserves.add(n);
   }
-  const coverGaps = [...gapsByFor.values()].map(e => ({
+  const coverGaps = [...gapsByFor.entries()].map(([forId, e]) => ({
     original: e.original, routes: e.routes,
     revenueAtRisk: Math.round(e.revenueAtRisk),
     reason: e.reasons.has('no-reserve') ? 'no-reserve' : 'hours-full',
+    typeName: getAircraftType(byId.get(forId)?.typeId)?.name ?? null,
+    routeLabels: e.labels,
+    bases: [...e.bases].sort(),
+    fullReserves: [...e.fullReserves],
+    coveredBy: [...(coveringFor.get(forId) ?? [])].map(id => nameOf(id).name),
   }));
 
   return {

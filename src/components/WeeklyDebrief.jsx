@@ -4,6 +4,7 @@ import { formatMoney, yearLabel } from '../utils/simulation.js';
 import { AlertIcon, HeartIcon } from './Icons.jsx';
 import { leasesAtRisk, leaseWarnPhrase } from '../utils/leaseAlerts.js';
 import { subscribeAwayDigest, pendingAwayWeeks } from '../utils/awayDigest.js';
+import { coverGapLine } from '../utils/coverGapText.js';
 import { netProfitOf } from '../utils/standings.js';
 import { backdropDismiss } from '../utils/backdropDismiss.js';
 
@@ -396,7 +397,7 @@ export default function WeeklyDebrief() {
               {coverage.gaps.map((g, i) => (
                 <div key={'cg' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(210,153,34,.08)', border: '1px solid rgba(210,153,34,.25)', borderRadius: 8, fontSize: 12 }}>
                   <span style={{ fontSize: 16 }}>⚠️</span>
-                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--yellow)' }}>{g.original.name}</span> <span style={{ color: 'var(--text-muted)' }}>{g.routes} route{g.routes !== 1 ? 's' : ''} uncovered (~{formatMoney(g.revenueAtRisk)}/wk) — {g.reason === 'no-reserve' ? 'no same-type reserve based there' : 'reserve out of block hours'}</span></div>
+                  <div style={{ flex: 1 }}><span style={{ fontWeight: 600, color: 'var(--yellow)' }}>{g.original.name}</span> <span style={{ color: 'var(--text-muted)' }}>{coverGapLine(g, formatMoney)}</span></div>
                 </div>
               ))}
             </div>
