@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { useGame, addRouteBlockReason, slotCapAt, peakSlotsUsedAt, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
+import { preorderOpen } from '../data/preorders.js';
 import { isOutOfService } from '../data/maintenance.js';
 import {
   baseCityPairDemand, referencePrice, distanceKm,
@@ -662,7 +663,10 @@ export default function RoutePlanner() {
   // 2026-10-04); this list had the same hole. `runwayBarred` feeds the empty state.
   const { reachableTypes, runwayBarred } = useMemo(() => {
     if (!routeData) return { reachableTypes: [], runwayBarred: [] };
-    const inRange = AIRCRAFT_TYPES.filter(t => aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
+    // Pre-order types (launch orders and preorders, not flying yet) are listed
+    // too, under their own heading: sizing a future order is why they are here.
+    const inRange = AIRCRAFT_TYPES.filter(t => (aircraftOrderable(t, calendarYear(state)) || preorderOpen(state, t))
+      && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
     const ok = [], barred = [];
     for (const t of inRange) {
       const short = runwayShortfall([origin, dest], t);
@@ -672,7 +676,18 @@ export default function RoutePlanner() {
       else if (!standShortfall([origin, dest], t)) ok.push(t);
     }
     return { reachableTypes: ok, runwayBarred: barred };
-  }, [routeData, reachByType, origin, dest]);
+  }, [routeData, reachByType, origin, dest, state.week, state.productionLinesWorld, state.programmeDelays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // type id → { kind, firstDeliveryAbs, label } for the types that do not fly yet.
+  const preorderById = useMemo(() => {
+    const m = new Map();
+    for (const t of reachableTypes) {
+      if (aircraftOrderable(t, calendarYear(state))) continue;
+      const pre = preorderOpen(state, t);
+      if (pre) m.set(t.id, pre);
+    }
+    return m;
+  }, [reachableTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hard ceiling on flights/week for this aircraft on this route: one airframe
   // has MAX_WEEKLY_BLOCK_HOURS flying hours a week, so longer sectors fit fewer
@@ -737,10 +752,10 @@ export default function RoutePlanner() {
   // stays visible under its own heading, because sizing a future order against
   // a real market is the other honest reason to be on this screen.
   const typeGroups = useMemo(() => {
-    const inFleet = [], catalogue = [];
-    for (const t of reachableTypes) (ownedTypeIds.has(t.id) ? inFleet : catalogue).push(t);
-    return { inFleet, catalogue };
-  }, [reachableTypes, ownedTypeIds]);
+    const inFleet = [], catalogue = [], preorder = [];
+    for (const t of reachableTypes) (preorderById.has(t.id) ? preorder : ownedTypeIds.has(t.id) ? inFleet : catalogue).push(t);
+    return { inFleet, catalogue, preorder };
+  }, [reachableTypes, ownedTypeIds, preorderById]);
 
   // Default: a type with an aircraft free to fly this lane today, then one only
   // a reserve could cover, then any type you own, and only then the catalogue.
@@ -749,6 +764,7 @@ export default function RoutePlanner() {
   const defaultTypeId = useMemo(() => {
     if (!reachableTypes.length) return '';
     const rank = (t) => {
+      if (preorderById.has(t.id)) return 5;  // never the default: it cannot fly yet
       if (t.freighter) return 4;
       const pool = (deployableByType[t.id] ?? []).filter(d => d.eligible);
       if (pool.some(d => !d.reserve)) return 0;
@@ -761,7 +777,7 @@ export default function RoutePlanner() {
       if (r < bestRank) { best = t; bestRank = r; }
     }
     return best.id;
-  }, [reachableTypes, deployableByType, ownedTypeIds]);
+  }, [reachableTypes, deployableByType, ownedTypeIds, preorderById]);
 
   // Seed the selection whenever the route moves out from under the old pick.
   // Derived during render, not in an effect, so the economics below are never
@@ -1074,7 +1090,9 @@ export default function RoutePlanner() {
   // option.
   const recommendations = useMemo(() => {
     if (!recSpec || reachableTypes.length === 0) return [];
-    const candidates = reachableTypes.filter(t => !t.freighter);
+    // Recommendations are planes you can put on the lane; a type that has not
+    // flown yet is not one of them.
+    const candidates = reachableTypes.filter(t => !t.freighter && !preorderById.has(t.id));
     if (candidates.length === 0) return [];
     if (rankYear) {
       return rankAircraftForYear(state, {
@@ -1088,7 +1106,7 @@ export default function RoutePlanner() {
       types: candidates,
       gameDate: rankingDate,
     });
-  }, [recSpec, reachableTypes, state.fleet, state.routes, state.hub, state.hubs, rankingDate, rankYear]);
+  }, [recSpec, reachableTypes, preorderById, state.fleet, state.routes, state.hub, state.hubs, rankingDate, rankYear]);
 
   // ── The year behind the ranking ──────────────────────────────────────────
   // A month picker on its own answers "best plane in December" and hides the
@@ -1394,14 +1412,14 @@ export default function RoutePlanner() {
                   <div style={{ flex: '1 1 200px', maxWidth: 320 }}>
                     <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Aircraft type
-                      <InfoTip text="Only aircraft that can fly this route are listed — in range, and with enough runway at both ends. Range is what your airframes actually have — engine and wingtip modifications count, so a jet whose book range falls short of the lane still appears if a tail you own is modded past it. The ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open." />
+                      <InfoTip text="Only aircraft that can fly this route are listed — in range, and with enough runway at both ends. Range is what your airframes actually have — engine and wingtip modifications count, so a jet whose book range falls short of the lane still appears if a tail you own is modded past it. The ones you actually own come first — the forecast starts on a plane you can fly today. “N ready” is how many of that type are free to fly this lane right now. Aircraft parked on reserve are counted separately as “on reserve” — you can still deploy one, but it stops standing by. Types under “Not in your fleet” are there to price up an order; you'd have to lease one before the route could open. Types under “Pre-order” do not fly yet: order one in the Market, and the forecast shows what it would earn here once it arrives." />
                     </div>
                     <select
                       className="form-select"
                       value={selectedTypeId}
                       onChange={e => setSelectedTypeId(e.target.value)}
                     >
-                      {[['In your fleet', typeGroups.inFleet], ['Not in your fleet', typeGroups.catalogue]]
+                      {[['In your fleet', typeGroups.inFleet], ['Not in your fleet', typeGroups.catalogue], ['Pre-order — not flying yet', typeGroups.preorder]]
                         .filter(([, types]) => types.length > 0)
                         .map(([label, types]) => (
                           <optgroup key={label} label={label}>
@@ -1419,7 +1437,7 @@ export default function RoutePlanner() {
                               const modded  = t.range < routeData.dist;
                               return (
                                 <option key={t.id} value={t.id}>
-                                  {t.name} ({t.seats} seats){modded ? ` · ${Math.round(reachKmFor(t)).toLocaleString()} km with your mods` : ''}{ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : ' · lease required'}
+                                  {t.name} ({t.seats} seats){modded ? ` · ${Math.round(reachKmFor(t)).toLocaleString()} km with your mods` : ''}{ready > 0 ? ` · ${ready} ready` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : preorderById.has(t.id) ? ` · pre-order, from ${preorderById.get(t.id).label}` : ' · lease required'}
                                 </option>
                               );
                             })}
@@ -2004,7 +2022,9 @@ export default function RoutePlanner() {
                               const tailNames = (list) => list.map(a => a.tailNumber || a.name).join(', ');
                               switch (short?.reason) {
                                 case 'none-owned':
-                                  return <>No {name} in your fleet — lease one from the Market first.</>;
+                                  return preorderById.has(simulation.type.id)
+                                    ? <>The {name} does not fly yet. Order one in the Market and the first deliveries come in {preorderById.get(simulation.type.id).label}; this forecast is what it would earn here today.</>
+                                    : <>No {name} in your fleet — lease one from the Market first.</>;
                                 case 'out-of-range':
                                   return <>Your {name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {laneKm} km. Fit range-extending wingtips, lighten the cabin, or lease a longer-legged aircraft.</>;
                                 case 'no-hours':

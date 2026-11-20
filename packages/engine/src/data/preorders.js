@@ -87,6 +87,32 @@ export function preorderWindow(state, type) {
   return { open: true, ...tl, discount: earlyBirdDiscount(tl, now), deposit: PREORDER_DEPOSIT };
 }
 
+/**
+ * Can this not-yet-flying type be ordered right now, either as a launch order
+ * (production-line worlds, the first 26 weeks after the announcement) or as a
+ * preorder (every era world, from then until the first delivery)? And when
+ * does it first deliver? Null when it cannot be ordered.
+ *
+ * The aircraft pickers that are about sizing a FUTURE order — the Route Finder
+ * and the Route Planner — list these types under their own heading (Discord,
+ * Nilla_wafer, 2026-11-16: "going to look at routes for new aircraft but can't
+ * find it in the drop down"). aircraftOrderable() stays false for them: nothing
+ * can fly one yet, so nothing that commits an aircraft to a route offers it.
+ * Tailwinds has the same function (launch orders only; it has no preorders).
+ *
+ * { kind: 'launch' | 'preorder', firstDeliveryAbs, label } — label like "March 1973"
+ */
+export function preorderOpen(state, type) {
+  const lw = launchWindow(state, type);
+  if (lw?.open) {
+    const first = lw.eisAbs + programmeDelayWeeks(state, type.id);
+    return { kind: 'launch', firstDeliveryAbs: first, label: absWeekLabel(state, first) };
+  }
+  const pw = preorderWindow(state, type);
+  if (pw) return { kind: 'preorder', firstDeliveryAbs: pw.firstDeliveryAbs, label: absWeekLabel(state, pw.firstDeliveryAbs) };
+  return null;
+}
+
 /** Bulk + early bird, capped like a launch order. */
 export function preorderOrderDiscount(state, type, quantity) {
   const tl = programmeTimeline(state, type);

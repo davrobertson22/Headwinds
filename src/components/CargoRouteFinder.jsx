@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
+import { preorderOpen } from '../data/preorders.js';
 import { distanceKm, formatMoney, currentGameDate, calendarYear, effectiveRangeKm } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, cargoBackhaulFactor } from '../utils/market.js';
 import { laneBlockFor, cargoLaneServed, rankByDemandLeft } from '../models/routeFinder.js';
@@ -220,12 +221,20 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
   // catalogue figure undercounted — and the distance band stays yours to set.
   function pickRangeType(id) { setRangeTypeId(id); }
 
+  // Freighters you can order today that do not fly yet (see RouteFinder).
+  const preorderTypes = useMemo(
+    () => AIRCRAFT_TYPES
+      .filter(t => t.freighter && !aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && preorderOpen(state, t))
+      .map(t => ({ type: t, pre: preorderOpen(state, t) })),
+    [state.startYear, state.year, state.week, state.productionLinesWorld, state.programmeDelays]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function resetPaging() { setLimit(PAGE_SIZE); }
 
   // ── Presets (utils/finderPresets.js) — the freight half of the same feature.
   const presetSearch = { rangeTypeId, minDist, maxDist, sortBy, showServed };
   const presetTypeOk = id => fleetTypes.some(f => f.type.id === id)
-    || AIRCRAFT_TYPES.some(t => t.id === id && t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id));
+    || AIRCRAFT_TYPES.some(t => t.id === id && t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id))
+    || preorderTypes.some(p => p.type.id === id);
   function applyPreset(p) {
     const { search, missingType } = resolvePreset('freight', p, {
       current: { rangeTypeId },
@@ -331,6 +340,13 @@ export default function CargoRouteFinder({ onPick, standalone = false }) {
                     <option key={t.id} value={t.id}>{t.name} — {Math.round(t.range).toLocaleString()} km{t.runwayFt ? ` · ${t.runwayFt.toLocaleString()} ft` : ''}</option>
                   ))}
                 </optgroup>
+                {preorderTypes.length > 0 && (
+                  <optgroup label="Pre-order — not flying yet">
+                    {preorderTypes.map(({ type: t, pre }) => (
+                      <option key={t.id} value={t.id}>{t.name} — {Math.round(t.range).toLocaleString()} km · pre-order, from {pre.label}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 

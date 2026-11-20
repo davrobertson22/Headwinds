@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useGame, cometWithdrawn } from '../store/GameContext.jsx';
 import { getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
+import { preorderOpen } from '../data/preorders.js';
 import { effectiveRangeKm, formatMoney, calendarYear, currentGameDate, maxWeeklyBlockHoursFor } from '../utils/simulation.js';
 import { buildRouteMarket } from '../models/demand.js';
 import {
@@ -180,6 +181,17 @@ export default function RouteFinder({ onPick, standalone = false }) {
     () => AIRCRAFT_TYPES.filter(t => !t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && !fleetTypes.some(f => f.type.id === t.id)),
     [fleetTypes]
   );
+  // Types you can order today but that do not fly yet: a launch order or a
+  // preorder (engine data/preorders.js preorderOpen). Listed for what the
+  // finder is for: working out where a future order would earn. Nothing here
+  // opens a route.
+  const preorderTypes = useMemo(
+    () => AIRCRAFT_TYPES
+      .filter(t => !t.freighter && !aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && preorderOpen(state, t))
+      .map(t => ({ type: t, pre: preorderOpen(state, t) })),
+    [state.startYear, state.year, state.week, state.productionLinesWorld, state.programmeDelays] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const selectedPre = preorderTypes.find(p => p.type.id === typeId)?.pre ?? null;
 
   function resetPaging() { setLimit(PAGE_SIZE); }
 
@@ -190,7 +202,8 @@ export default function RouteFinder({ onPick, standalone = false }) {
   function applyPreset(p) {
     const { search, missingType } = resolvePreset('passenger', p, {
       current: { typeId },
-      typeOk: id => fleetTypes.some(f => f.type.id === id) || catalogueTypes.some(t => t.id === id),
+      typeOk: id => fleetTypes.some(f => f.type.id === id) || catalogueTypes.some(t => t.id === id)
+        || preorderTypes.some(p => p.type.id === id),
       sortOk: (s, t) => !!SORTS[s] && (!SORTS[s].needsForecast || !!t),
     });
     if (!search) return null;
@@ -500,7 +513,7 @@ export default function RouteFinder({ onPick, standalone = false }) {
             <div>
               <div className="form-label" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                 Aircraft
-                <InfoTip text="Search with a specific aircraft and the finder hides everything it cannot legally fly — beyond its range, or a runway too short for it — and forecasts each remaining market on that type. Aircraft you own come first, and their range is the range of your best-equipped tail, not the catalogue figure. “Any aircraft” goes back to browsing raw demand." />
+                <InfoTip text="Search with a specific aircraft and the finder hides everything it cannot legally fly — beyond its range, or a runway too short for it — and forecasts each remaining market on that type. Aircraft you own come first, and their range is the range of your best-equipped tail, not the catalogue figure. Types under “Pre-order” do not fly yet: you can order one now, and the forecast shows what it would earn once it arrives. “Any aircraft” goes back to browsing raw demand." />
               </div>
               <select
                 className="form-select"
@@ -523,11 +536,18 @@ export default function RouteFinder({ onPick, standalone = false }) {
                     <option key={t.id} value={t.id}>{t.name} — {t.range.toLocaleString()} km</option>
                   ))}
                 </optgroup>
+                {preorderTypes.length > 0 && (
+                  <optgroup label="Pre-order — not flying yet">
+                    {preorderTypes.map(({ type: t, pre }) => (
+                      <option key={t.id} value={t.id}>{t.name} — {t.range.toLocaleString()} km · from {pre.label}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {selectedType && (
                 <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
                   {reach.toLocaleString()} km · needs {selectedType.runwayFt ? `${selectedType.runwayFt.toLocaleString()} ft` : 'no listed'} runway
-                  {owned ? '' : ' · lease required'}
+                  {owned ? '' : selectedPre ? ` · pre-order only, first deliveries ${selectedPre.label}` : ' · lease required'}
                 </div>
               )}
             </div>

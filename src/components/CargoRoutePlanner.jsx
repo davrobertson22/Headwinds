@@ -3,6 +3,7 @@ import NumberStepper from './NumberStepper.jsx';
 import { useGame, slotCapAt, slotsUsedAt as slotsUsedAtEngine, cometWithdrawn, addCargoRouteBlockReason } from '../store/GameContext.jsx';
 import { AIRPORTS, getAirport } from '../data/airports.js';
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable } from '../data/aircraft.js';
+import { preorderOpen } from '../data/preorders.js';
 import { isOutOfService } from '../data/maintenance.js';
 import { simulateCargoNetwork, formatMoney, formatPercent, cargoSlotsUsedAt, maxFrequency, deployableFleetForRoute, deploymentShortfall, maxWeeklyBlockHoursFor, currentGameDate, effectiveRangeKm, forecastRangeMod, calendarYear } from '../utils/simulation.js';
 import { cargoCityPairDemand, cargoReferenceYield, routeDistance } from '../utils/market.js';
@@ -245,14 +246,26 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   // state can say why.
   const { reachableTypes, runwayBarred } = useMemo(() => {
     if (!routeData) return { reachableTypes: [], runwayBarred: [] };
-    const inRange = AIRCRAFT_TYPES.filter(t => t.freighter && aircraftOrderable(t, calendarYear(state)) && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
+    // Pre-order freighters (not flying yet) are listed under their own heading.
+    const inRange = AIRCRAFT_TYPES.filter(t => t.freighter && (aircraftOrderable(t, calendarYear(state)) || preorderOpen(state, t))
+      && !cometWithdrawn(state, t.id) && reachKmFor(t) >= routeData.dist);
     const ok = [], barred = [];
     for (const t of inRange) {
       const short = runwayShortfall([origin, dest], t);
       if (short) barred.push({ type: t, ...short }); else ok.push(t);
     }
     return { reachableTypes: ok, runwayBarred: barred };
-  }, [routeData, reachByType, origin, dest]);
+  }, [routeData, reachByType, origin, dest, state.week, state.productionLinesWorld, state.programmeDelays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const preorderById = useMemo(() => {
+    const m = new Map();
+    for (const t of reachableTypes) {
+      if (aircraftOrderable(t, calendarYear(state))) continue;
+      const pre = preorderOpen(state, t);
+      if (pre) m.set(t.id, pre);
+    }
+    return m;
+  }, [reachableTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Freighter types you own (any tail that isn't retired) — they head the picker.
   const ownedTypeIds = useMemo(() => new Set(
@@ -266,22 +279,22 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
   // that reaches the lane, then any freighter you own, then the catalogue.
   // Ported from Tailwinds.
   const typeGroups = useMemo(() => {
-    const inFleet = [], catalogue = [];
-    for (const t of reachableTypes) (ownedTypeIds.has(t.id) ? inFleet : catalogue).push(t);
-    return { inFleet, catalogue };
-  }, [reachableTypes, ownedTypeIds]);
+    const inFleet = [], catalogue = [], preorder = [];
+    for (const t of reachableTypes) (preorderById.has(t.id) ? preorder : ownedTypeIds.has(t.id) ? inFleet : catalogue).push(t);
+    return { inFleet, catalogue, preorder };
+  }, [reachableTypes, ownedTypeIds, preorderById]);
   const defaultTypeId = useMemo(() => {
     if (!reachableTypes.length || !routeData) return '';
     const idleReaching = (t) => (state.fleet ?? []).some(a => a.typeId === t.id && a.status === 'idle'
       && !a.reserveBase && !isOutOfService(a) && effectiveRangeKm(a, t) >= routeData.dist);
-    const rank = (t) => (idleReaching(t) ? 0 : ownedTypeIds.has(t.id) ? 1 : 2);
+    const rank = (t) => (preorderById.has(t.id) ? 3 : idleReaching(t) ? 0 : ownedTypeIds.has(t.id) ? 1 : 2);
     let best = reachableTypes[0], bestRank = rank(best);
     for (const t of reachableTypes) {
       const r = rank(t);
       if (r < bestRank) { best = t; bestRank = r; }
     }
     return best.id;
-  }, [reachableTypes, ownedTypeIds, state.fleet, routeData]);
+  }, [reachableTypes, ownedTypeIds, preorderById, state.fleet, routeData]);
 
   useMemo(() => {
     if (reachableTypes.length && !reachableTypes.find(t => t.id === selectedTypeId)) {
@@ -492,7 +505,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                   <div style={{ flex: '1 1 220px', maxWidth: 340 }}>
                     <div className="form-label" style={{ marginBottom: 6 }}>Freighter type</div>
                     <select className="form-select" value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)}>
-                      {[['In your fleet', typeGroups.inFleet], ['Not in your fleet', typeGroups.catalogue]]
+                      {[['In your fleet', typeGroups.inFleet], ['Not in your fleet', typeGroups.catalogue], ['Pre-order — not flying yet', typeGroups.preorder]]
                         .filter(([, types]) => types.length > 0)
                         .map(([label, types]) => (
                           <optgroup key={label} label={label}>
@@ -505,7 +518,7 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                               const owned = ownedTypeIds.has(t.id);
                               return (
                                 <option key={t.id} value={t.id}>
-                                  {t.name} ({t.payloadTonnes}t){idle > 0 ? ` · ${idle} idle` : ''}{ready > idle ? ` · ${ready - idle} with spare hours` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : ' · lease required'}
+                                  {t.name} ({t.payloadTonnes}t){idle > 0 ? ` · ${idle} idle` : ''}{ready > idle ? ` · ${ready - idle} with spare hours` : ''}{onRes > 0 ? ` · ${onRes} on reserve` : ''}{owned && ready === 0 && onRes === 0 ? ' · none free' : ''}{owned ? '' : preorderById.has(t.id) ? ` · pre-order, from ${preorderById.get(t.id).label}` : ' · lease required'}
                                 </option>
                               );
                             })}
@@ -651,7 +664,9 @@ export default function CargoRoutePlanner({ mode, setMode, embedded = false, ini
                               const tailNames = (list) => list.map(a => a.tailNumber || a.name).join(', ');
                               switch (short?.reason) {
                                 case 'none-owned':
-                                  return <>No {name} in your fleet — lease one from the Market first.</>;
+                                  return preorderById.has(simulation.type.id)
+                                    ? <>The {name} does not fly yet. Order one in the Market and the first deliveries come in {preorderById.get(simulation.type.id).label}; this forecast is what it would earn here today.</>
+                                    : <>No {name} in your fleet — lease one from the Market first.</>;
                                 case 'out-of-range':
                                   return <>Your {name}{owned > 1 ? 's reach' : ' reaches'} {Math.round(reachKmFor(simulation.type)).toLocaleString()} km as configured — {origin}–{dest} is {laneKm} km. Lease a longer-legged freighter.</>;
                                 case 'no-hours':
