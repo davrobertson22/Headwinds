@@ -176,12 +176,15 @@ globalThis.window ??= { localStorage: globalThis.localStorage, matchMedia: () =>
 const { GameProvider, freshState } = await import('../src/store/GameContext.jsx');
 const Finance = (await import('../src/components/Finance.jsx')).default;
 
-const SPOT = 0.45;
+// Away from the 1998 era mean (0.45) so spot, the era path and the classic
+// path all print differently — at 0.45 the expected average equals the
+// market index already on screen and the preview check passes vacuously.
+const SPOT = 0.55;
 const eraSave = {
   ...freshState(),
   phase: 'playing', week: 20, year: 1, startYear: 1998, hub: 'JFK', cash: 50_000_000,
   fleet: [], routes: [], cargoRoutes: [], loans: [],
-  fuelPrice: { index: SPOT, history: [0.47, 0.46, 0.46, SPOT] },
+  fuelPrice: { index: SPOT, history: [0.50, 0.52, 0.54, SPOT] },
   hedgeContracts: [],
 };
 const render = (state) => {
@@ -210,7 +213,9 @@ test('the Contract Preview and its expected average follow the era curve', () =>
   assert.ok(m, 'no Locked price row');
   assert.equal(m[1], stored, `previewed ${m[1]}x, sold ${stored}x`);
   const avg = eraPathAverage(SPOT, opt.weeks, calendarYearFrac(eraSave)).toFixed(3);
-  assert.ok(html.includes(`${avg}×`), `expected average ${avg}x not shown`);
+  const row = html.match(/Expected average over term<\/span>.*?([0-9]+\.[0-9]{3})×/s);
+  assert.ok(row, 'no Expected average row');
+  assert.equal(row[1], avg, `expected average shows ${row[1]}x, era path is ${avg}x`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
