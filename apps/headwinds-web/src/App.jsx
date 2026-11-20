@@ -1699,7 +1699,7 @@ function WorldScreen({ worldId, token, me, refreshMe }) {
               </span>
             )}
             {world.startYear != null && (
-              <span title={`Era world: the calendar started in ${world.startYear} and moves through real time — aircraft appear when they entered service, demand, fares and fuel follow history`}
+              <span title={`Era world: the calendar started in ${world.startYear} and moves through real time — aircraft appear when they entered service, and demand, fares and fuel loosely reflect history`}
                 style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: 'rgba(169,139,255,0.15)', color: '#a98bff', border: '1px solid rgba(169,139,255,0.4)', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                 🕰 ERA · {world.startYear}
               </span>
