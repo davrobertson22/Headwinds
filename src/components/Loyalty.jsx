@@ -13,6 +13,7 @@ import {
   loyaltyReputationBonus,
   loyaltyEnrollPull,
 } from '../utils/simulation.js';
+import FoldOnPhone from './FoldOnPhone.jsx';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,11 +135,13 @@ function LegacyLoyalty() {
         {/* ── Investment controls ── */}
         <div className="card">
           <div className="card-title">Weekly Investment</div>
+          <FoldOnPhone id="loyalty" label="How loyalty builds">
           <p style={{ color: 'var(--fg-muted)', fontSize: 13, marginBottom: 16 }}>
             Loyalty is a long game: members enroll over months and the program's <strong>maturity</strong> builds
             over <strong>~18 months</strong> of continuous funding. Effects start small and compound — but members
             earn points you'll owe later, and defunding a mature program sends your best flyers to rivals.
           </p>
+          </FoldOnPhone>
 
           {/* Tier presets */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 16 }}>

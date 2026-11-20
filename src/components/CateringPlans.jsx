@@ -14,6 +14,7 @@ import {
   planRef, cateringRefName, cateringRefSummary, routeCateringEconomics, routeCateringQuality,
   normalizeCateringRef,
 } from '../data/cateringPlans.js';
+import FoldOnPhone from './FoldOnPhone.jsx';
 
 /**
  * Service plans — the airline's own catering menus.
@@ -601,12 +602,14 @@ export default function CateringPlans() {
 
   return (
     <div className="card" style={{ padding: '14px 18px' }}>
+      <FoldOnPhone id="catering-plans" label="How catering plans work">
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
         Build your own service. For each cabin choose what is served, how good it is, and whether it is free or sold
         and for how much. Better food and lower prices cost more and lift quality and reputation; thinner menus and
         higher prices earn more and cost quality. Save a menu as a plan, then put it on as many routes as you like.
         The five classic levels stay as they are.
       </div>
+      </FoldOnPhone>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
         <DistanceAndLayout distKm={distKm} setDistKm={setDistKm} layoutId={layoutId} setLayoutId={setLayoutId} />
         <button type="button" className="btn btn-primary" disabled={atLimit}

@@ -18,6 +18,7 @@ import {
   LOUNGE_SERVICING_COST_PER_GUEST, LOUNGE_ALLIANCE_SETTLEMENT_PER_GUEST,
   LOUNGE_LOYALTY_APPEAL_PER_END, LOUNGE_APPEAL_PER_END, LOUNGE_ALLIANCE_END_WEIGHT,
 } from '../data/lounges.js';
+import FoldOnPhone from './FoldOnPhone.jsx';
 
 // Sum the airline's boarded pax by cabin from last week's per-route results, so
 // the projected ancillary revenue uses the SAME function the engine runs.
@@ -333,6 +334,7 @@ export default function Ancillaries() {
     <div>
       {/* Intro + status */}
       <div style={{ marginBottom: 16 }}>
+        <FoldOnPhone id="ancillaries" label="How extras and fees work">
         <div style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 720, lineHeight: 1.5 }}>
           Set your airline-wide à la carte products. For each one, decide whether to offer it and what to charge.
           Giving extras away free (or offering an expected amenity like Wi-Fi) lifts perceived <strong>quality</strong> and
@@ -340,6 +342,7 @@ export default function Ancillaries() {
           amenities drag quality down. Not every passenger buys — cheaper fees mean more buyers, pricier fees mean fewer.
           Changes take effect next week and apply to every route.
         </div>
+        </FoldOnPhone>
       </div>
 
       {/* Summary bar */}

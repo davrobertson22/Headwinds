@@ -6,6 +6,7 @@ import { useGame } from '../store/GameContext.jsx';
 import { getAircraftType } from '../data/aircraft.js';
 import { useRememberedState, finderMemoryKey, rememberFinder } from '../utils/finderMemory.js';
 import { Glyph } from './Icons.jsx';
+import FoldOnPhone from './FoldOnPhone.jsx';
 
 /**
  * Route Finder — a research screen, not the first step of opening a route.
@@ -85,6 +86,7 @@ export default function RouteFinderScreen() {
         })}
       </div>
 
+      <FoldOnPhone id="route-finder" label="How the Route Finder works">
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Where is the demand?</div>
         <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
@@ -96,6 +98,7 @@ export default function RouteFinderScreen() {
           results and review them together to open one route per plane.
         </div>
       </div>
+      </FoldOnPhone>
 
       {mode === 'passenger'
         ? <RouteFinder standalone onPick={planPair('passenger')} />

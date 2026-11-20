@@ -2774,3 +2774,33 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
   .lb-row .lb-spark { display: none !important; }
   .lb-row .lb-value { min-width: 0 !important; }
 }
+
+/* ── Mobile batch 4 (2026-11-20): folded intros, a slimmer aircraft Market ──── */
+/* FoldOnPhone.jsx: the one-line toggle a page's explainer folds into on phones
+   (the component renders it only below 640px). */
+.fold-toggle {
+  display: flex; align-items: center; gap: 7px; min-height: 40px;
+  margin: 0 0 8px; padding: 0 2px; background: none; border: none;
+  color: var(--text-muted); font-size: 13px; font-family: inherit; cursor: pointer; text-align: left;
+}
+.fold-toggle .fold-caret { color: var(--text-dim); }
+
+/* Aircraft Market (Marketplace.jsx), phones: the manufacturer chips (~40, a
+   358px wall) become one drop-down, and each aircraft card loses its slack
+   (795px, more than a screen): a shorter photo band, the blurb cut to two
+   lines, tighter stat pills and crew box. Every figure stays on the card. */
+.mfr-select { display: none; }
+@media (max-width: 640px) {
+  .mfr-chips { display: none !important; }
+  .mfr-select { display: block; width: 100%; min-height: 40px; margin-top: 6px; }
+
+  .aircraft-market-grid { gap: 12px; }
+  .aircraft-photo-wrap { height: 96px; }
+  .aircraft-market-body { padding: 12px; gap: 8px; }
+  .aircraft-market-body .amc-desc {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .aircraft-stat-row { gap: 4px; }
+  .aircraft-stat-pill { padding: 5px 4px; }
+  .aircraft-market-body .amc-crew { margin-top: 4px !important; padding: 6px 8px !important; }
+}
