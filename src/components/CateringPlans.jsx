@@ -225,7 +225,7 @@ export function PlanEditor({ draft, setDraft, plans, usage, distKm, setDistKm, l
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+        <table className="m-cards" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
               <th style={{ ...th, textAlign: 'left' }}>{CABIN_LABELS[cabin]} menu</th>
@@ -248,15 +248,15 @@ export function PlanEditor({ draft, setDraft, plans, usage, distKm, setDistKm, l
               const unit = itemCost(it.id, cabin, tier);
               const needsPrice = mode === 'sold' && !(entry.price > 0);
               return (
-                <tr key={it.id} style={{ borderBottom: '1px solid var(--border)', opacity: mode === 'off' ? 0.6 : 1 }}>
-                  <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>
+                <tr key={it.id} className="m-row" style={{ borderBottom: '1px solid var(--border)', opacity: mode === 'off' ? 0.6 : 1 }}>
+                  <td className="m-head m-full" style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>
                     <div style={{ fontWeight: 600 }}>{it.name}</div>
                     <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>
                       costs you {money2(unit * distFactor)} a serving on this flight
                       {row?.shadowed && <span style={{ color: 'var(--yellow)' }}> · the other meal is better, so this adds nothing</span>}
                     </div>
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>
+                  <td className="m-stat m-wide" data-label="Serve" style={{ ...td, textAlign: 'left' }}>
                     <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
                       {[['off', 'Off'], ['free', 'Free'], ['sold', 'Sell']].map(([m, name]) => (
                         <button key={m} type="button" aria-pressed={mode === m}
@@ -268,7 +268,7 @@ export function PlanEditor({ draft, setDraft, plans, usage, distKm, setDistKm, l
                       ))}
                     </span>
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>
+                  <td className="m-stat" data-label="Quality tier" style={{ ...td, textAlign: 'left' }}>
                     {it.tiered ? (
                       <select className="form-select" value={tier} disabled={mode === 'off'} aria-label={`${it.name} quality tier`}
                         onChange={ev => setEntry(it.id, { tier: ev.target.value })}
@@ -277,7 +277,7 @@ export function PlanEditor({ draft, setDraft, plans, usage, distKm, setDistKm, l
                       </select>
                     ) : <span style={{ color: 'var(--text-dim)' }}>—</span>}
                   </td>
-                  <td style={td}>
+                  <td className="m-stat" data-label="Your price" style={td}>
                     {mode === 'sold' ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         $<input className="form-input" type="number" min={0} max={itemMaxPrice(it.id, cabin, tier)} step={0.5}
@@ -287,11 +287,11 @@ export function PlanEditor({ draft, setDraft, plans, usage, distKm, setDistKm, l
                       </span>
                     ) : <span style={{ color: 'var(--text-dim)' }}>{mode === 'free' ? 'free' : '—'}</span>}
                   </td>
-                  <td style={{ ...td, color: row ? 'var(--red)' : 'var(--text-dim)' }}>{row ? money2(-row.costPerPax) : '—'}</td>
-                  <td style={td}>{row ? (mode === 'free' ? 'everyone' : `${Math.round(row.take * 100)}%`) : needsPrice ? <span style={{ color: 'var(--yellow)' }}>no price yet</span> : '—'}</td>
-                  <td style={{ ...td, color: row?.revenuePerPax > 0 ? 'var(--green)' : 'var(--text-dim)' }}>{row && mode === 'sold' ? money2(row.revenuePerPax) : '—'}</td>
-                  <td style={{ ...td, fontWeight: 600, color: row ? netColor(row.netPerPax) : 'var(--text-dim)' }}>{row ? money2(row.netPerPax) : '—'}</td>
-                  <td style={{ ...td, textAlign: 'left' }}>
+                  <td className="m-stat" data-label="Cost / pax" style={{ ...td, color: row ? 'var(--red)' : 'var(--text-dim)' }}>{row ? money2(-row.costPerPax) : '—'}</td>
+                  <td className="m-stat" data-label="Who buys" style={td}>{row ? (mode === 'free' ? 'everyone' : `${Math.round(row.take * 100)}%`) : needsPrice ? <span style={{ color: 'var(--yellow)' }}>no price yet</span> : '—'}</td>
+                  <td className="m-stat" data-label="Sales / pax" style={{ ...td, color: row?.revenuePerPax > 0 ? 'var(--green)' : 'var(--text-dim)' }}>{row && mode === 'sold' ? money2(row.revenuePerPax) : '—'}</td>
+                  <td className="m-stat" data-label="Net / pax" style={{ ...td, fontWeight: 600, color: row ? netColor(row.netPerPax) : 'var(--text-dim)' }}>{row ? money2(row.netPerPax) : '—'}</td>
+                  <td className="m-stat m-full" data-label="Quality added" style={{ ...td, textAlign: 'left' }}>
                     {row ? <ItemQualityBar points={row.points} pointsIfFree={row.pointsIfFree} max={maxPts} /> : <span style={{ color: 'var(--text-dim)' }}>—</span>}
                   </td>
                 </tr>
@@ -299,13 +299,13 @@ export function PlanEditor({ draft, setDraft, plans, usage, distKm, setDistKm, l
             })}
           </tbody>
           <tfoot>
-            <tr>
-              <td style={{ ...td, textAlign: 'left', fontWeight: 700 }} colSpan={4}>{CABIN_LABELS[cabin]} total, per passenger</td>
-              <td style={{ ...td, fontWeight: 700, color: 'var(--red)' }}>{money2(-e.costPerPax)}</td>
-              <td style={td} />
-              <td style={{ ...td, fontWeight: 700, color: e.revenuePerPax > 0 ? 'var(--green)' : 'var(--text-dim)' }}>{money2(e.revenuePerPax)}</td>
-              <td style={{ ...td, fontWeight: 700, color: netColor(e.netPerPax) }}>{money2(e.netPerPax)}</td>
-              <td style={{ ...td, textAlign: 'left', fontWeight: 700, color: qColor(e.score) }}>cabin quality {signed(+e.score.toFixed(1))}</td>
+            <tr className="m-row">
+              <td className="m-head m-full" style={{ ...td, textAlign: 'left', fontWeight: 700 }} colSpan={4}>{CABIN_LABELS[cabin]} total, per passenger</td>
+              <td className="m-stat" data-label="Cost / pax" style={{ ...td, fontWeight: 700, color: 'var(--red)' }}>{money2(-e.costPerPax)}</td>
+              <td className="m-hide" style={td} />
+              <td className="m-stat" data-label="Sales / pax" style={{ ...td, fontWeight: 700, color: e.revenuePerPax > 0 ? 'var(--green)' : 'var(--text-dim)' }}>{money2(e.revenuePerPax)}</td>
+              <td className="m-stat" data-label="Net / pax" style={{ ...td, fontWeight: 700, color: netColor(e.netPerPax) }}>{money2(e.netPerPax)}</td>
+              <td className="m-stat m-full" data-label="Cabin quality" style={{ ...td, textAlign: 'left', fontWeight: 700, color: qColor(e.score) }}>cabin quality {signed(+e.score.toFixed(1))}</td>
             </tr>
           </tfoot>
         </table>
@@ -551,8 +551,8 @@ export default function CateringPlans() {
     const lo = cateringQualityBonus('none', distKm);
     const hi = Math.max(1, cateringQualityBonus('full', distKm) * (CATERING_SCORE_CEILING / CATERING_SCORE_FULL));
     return (
-      <tr key={ref} style={{ borderBottom: '1px solid var(--border)' }}>
-        <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>
+      <tr key={ref} className="m-row" style={{ borderBottom: '1px solid var(--border)' }}>
+        <td className="m-head" style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>
           <div style={{ fontWeight: 600 }}>{s.name}</div>
           {plan && (
             <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>
@@ -560,16 +560,17 @@ export default function CateringPlans() {
             </div>
           )}
         </td>
-        <td style={{ ...td, color: s.costPerPax > 0 ? 'var(--red)' : 'var(--text-dim)' }}>{money2(-s.costPerPax)}</td>
-        <td style={{ ...td, color: s.revenuePerPax > 0 ? 'var(--green)' : 'var(--text-dim)' }}>{money2(s.revenuePerPax)}</td>
-        <td style={{ ...td, fontWeight: 600, color: netColor(s.netPerPax) }}>{money2(s.netPerPax)}</td>
-        <td style={{ ...td, textAlign: 'left', minWidth: 150 }}>
+        <td className="m-stat" data-label="Cost / pax" style={{ ...td, color: s.costPerPax > 0 ? 'var(--red)' : 'var(--text-dim)' }}>{money2(-s.costPerPax)}</td>
+        <td className="m-stat" data-label="Sales / pax" style={{ ...td, color: s.revenuePerPax > 0 ? 'var(--green)' : 'var(--text-dim)' }}>{money2(s.revenuePerPax)}</td>
+        <td className="m-stat" data-label="Net / pax" style={{ ...td, fontWeight: 600, color: netColor(s.netPerPax) }}>{money2(s.netPerPax)}</td>
+        <td className="m-stat m-full" data-label="Route quality" style={{ ...td, textAlign: 'left', minWidth: 150 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ flex: 1 }}><QualityScaleBar value={s.quality} min={Math.min(lo, -1)} max={hi} height={8} /></div>
             <span style={{ width: 28, textAlign: 'right', fontWeight: 700, color: qColor(s.quality) }}>{signed(s.quality)}</span>
           </div>
         </td>
-        <td style={{ ...td, textAlign: 'right' }}>
+        {/* A plan's five buttons take a line of their own at the foot of its phone card. */}
+        <td className={plan ? 'm-act m-full m-last' : 'm-act'} style={{ ...td, textAlign: 'right' }}>
           {plan ? (
             <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => edit(plan)}>Edit</button>
@@ -614,7 +615,7 @@ export default function CateringPlans() {
         </button>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+        <table className="m-cards" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
               <th style={{ ...th, textAlign: 'left' }}>Plan</th>

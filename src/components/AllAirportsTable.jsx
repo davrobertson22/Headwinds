@@ -28,6 +28,7 @@ import FuelBasisChip from './FuelBasisChip.jsx';
 import { DisabledHint } from './GateDenial.jsx';
 import TierBadge from './TierBadge.jsx';
 import InfoTip from './InfoTip.jsx';
+import MobileSortPicker from './MobileSortPicker.jsx';
 
 export const ALL_AIRPORTS_PAGE_SIZE = 50;
 
@@ -282,9 +283,14 @@ export default function AllAirportsTable({ onDetails, onAddGate, addDenialFor = 
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>{pager}</div>
+      <MobileSortPicker id="all-airports-sort"
+        options={columns.map(c => ({ id: c.id, label: c.label }))}
+        value={sortCol} dir={sortDir}
+        onPick={(id) => clickHeader(columns.find(c => c.id === id))}
+        onFlip={() => clickHeader(columns.find(c => c.id === sortCol))} />
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }} data-all-airports>
+          <table className="m-cards m-act-wide" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }} data-all-airports>
             <thead>
               <tr>
                 {columns.map(c => (
@@ -306,18 +312,18 @@ export default function AllAirportsTable({ onDetails, onAddGate, addDenialFor = 
               {shown.map(r => {
                 const denial = addDenialFor(r.code);
                 return (
-                <tr key={r.code} data-airport={r.code}
+                <tr key={r.code} className="m-row" data-airport={r.code}
                   style={denial ? { background: 'rgba(248,81,73,0.04)' } : undefined}>
-                  <td style={{ ...TD, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>
+                  <td className="m-head" style={{ ...TD, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{r.code}</span>
                     {r.isHub && <span title="Hub" style={{ color: 'var(--accent)', marginLeft: 4 }}>★</span>}
                     <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>{r.city}</span>
                     <span style={{ marginLeft: 6 }}><TierBadge tier={r.tier} /></span>
                   </td>
-                  <td style={{ ...TD, color: 'var(--text-muted)' }}>{r.countryName}</td>
-                  <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{table ? compact(r.pax) : '…'}</td>
-                  <td style={{ ...TD, textAlign: 'right' }}>{table ? `${compact(r.cargo)} t` : '…'}</td>
-                  <td data-gateway style={{
+                  <td className="m-stat" data-label="Country" style={{ ...TD, color: 'var(--text-muted)' }}>{r.countryName}</td>
+                  <td className="m-stat" data-label="Pax market" style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{table ? compact(r.pax) : '…'}</td>
+                  <td className="m-stat" data-label="Cargo market" style={{ ...TD, textAlign: 'right' }}>{table ? `${compact(r.cargo)} t` : '…'}</td>
+                  <td className="m-stat" data-label="Gateway" data-gateway style={{
                     ...TD, textAlign: 'right',
                     color: r.gateway >= 0.65 ? 'var(--purple)' : r.gateway >= 0.45 ? 'var(--accent)' : r.gatewayRated ? 'var(--text)' : 'var(--text-dim)',
                     fontWeight: r.gatewayRated ? 600 : 400,
@@ -325,26 +331,26 @@ export default function AllAirportsTable({ onDetails, onAddGate, addDenialFor = 
                     title={r.gatewayRated ? `${Math.round(r.gateway * 100)}% of traffic here is transit` : 'Not individually rated: the 20% default'}>
                     {Math.round(r.gateway * 100)}%
                   </td>
-                  <td style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{r.metro.toFixed(1)}M</td>
-                  <td style={{ ...TD, textAlign: 'right' }}>{r.runway ? `${r.runway.toLocaleString()} ft` : '—'}</td>
-                  <td style={{ ...TD, textAlign: 'right' }}
+                  <td className="m-stat" data-label="Metro" style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{r.metro.toFixed(1)}M</td>
+                  <td className="m-stat" data-label="Runway" style={{ ...TD, textAlign: 'right' }}>{r.runway ? `${r.runway.toLocaleString()} ft` : '—'}</td>
+                  <td className="m-stat" data-label="Airlines" style={{ ...TD, textAlign: 'right' }}
                     title={r.airlines.length ? r.airlines.map(a => a.name).join(', ') : 'No airline flies here yet'}>
                     {r.airlines.length}
                     {r.airlines.some(a => a.isPlayer) && <span style={{ color: 'var(--accent)', marginLeft: 3 }} title="Including you">•</span>}
                   </td>
-                  <td style={{ ...TD, textAlign: 'right', color: r.gates ? 'var(--accent)' : 'var(--text-dim)', fontWeight: r.gates ? 600 : 400 }}>
+                  <td className="m-stat" data-label="Your gates" style={{ ...TD, textAlign: 'right', color: r.gates ? 'var(--accent)' : 'var(--text-dim)', fontWeight: r.gates ? 600 : 400 }}>
                     {r.gates || '—'}
                   </td>
                   {scarcity && (
-                    <td style={{ ...TD }}>
+                    <td className="m-stat" data-label="Gates taken" style={{ ...TD }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         {renderAvailability ? renderAvailability(r.code) : `${r.taken}/${r.capacity}`}
                       </span>
                     </td>
                   )}
-                  <td style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{formatMoney(r.fee)}/wk</td>
-                  {fuelOn && <td style={{ ...TD, textAlign: 'right' }}><FuelBasisChip code={r.code} /></td>}
-                  <td style={{ ...TD, textAlign: 'right' }}>
+                  <td className="m-stat" data-label="Next gate" style={{ ...TD, textAlign: 'right', color: 'var(--text-muted)' }}>{formatMoney(r.fee)}/wk</td>
+                  {fuelOn && <td className="m-stat" data-label="Fuel" style={{ ...TD, textAlign: 'right' }}><FuelBasisChip code={r.code} /></td>}
+                  <td className="m-act" style={{ ...TD, textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: 4 }}>
                       <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => onDetails(r.code)}>
                         Details

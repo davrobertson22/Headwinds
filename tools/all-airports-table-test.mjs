@@ -158,7 +158,7 @@ test('a Gateway column shows the score the airport screen shows, with the 20% de
   const html = render(base());
   assert.match(html, />Gateway</, 'column header');
   const cell = (code) => {
-    const m = rowHtml(html, code).match(/<td data-gateway="true"[^>]*title="([^"]*)"[^>]*>(\d+)%</);
+    const m = rowHtml(html, code).match(/<td[^>]*data-gateway="true"[^>]*title="([^"]*)"[^>]*>(\d+)%</);
     assert.ok(m, `${code} has a gateway cell`);
     return { title: m[1], pct: Number(m[2]), html: m[0] };
   };

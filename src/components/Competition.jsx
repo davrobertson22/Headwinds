@@ -698,7 +698,7 @@ function PlayerStandings({ competitors, self, onSelect }) {
           return (
             <div
               key={entry.id}
-              className="card"
+              className="card lb-row"
               onClick={clickable ? () => onSelect(entry.carrier) : undefined}
               role={clickable ? 'button' : undefined}
               tabIndex={clickable ? 0 : undefined}
@@ -737,10 +737,14 @@ function PlayerStandings({ competitors, self, onSelect }) {
                   ))}
                 </div>
               </div>
+              {/* lb-spark / lb-value: phones drop the sparkline and let the figure
+                  column shrink, so the name and stats keep the room (index.css). */}
               {entry.netProfitHistory?.length >= 2 && (
-                <ProfitSparkline history={entry.netProfitHistory} />
+                <span className="lb-spark" style={{ display: 'contents' }}>
+                  <ProfitSparkline history={entry.netProfitHistory} />
+                </span>
               )}
-              <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 96 }}>
+              <div className="lb-value" style={{ textAlign: 'right', flexShrink: 0, minWidth: 96 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: valueColor }}>
                   {fmtStat(spec, value)}{signed && value != null ? '/wk' : ''}
                 </div>

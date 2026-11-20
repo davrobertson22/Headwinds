@@ -647,7 +647,7 @@ function StaffingSummary({ crew, labor, dispatch, autoStaff, autoRelease = false
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="m-cards" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
               <th style={th}>Group</th>
@@ -665,14 +665,14 @@ function StaffingSummary({ crew, labor, dispatch, autoStaff, autoRelease = false
               const training = crewBodies(g.id, c.training);
               const recruiting = crewBodies(g.id, c.recruiting);
               return (
-                <tr key={g.id}>
-                  <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                <tr key={g.id} className="m-row">
+                  <td className="m-head m-full" style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>
                     <Glyph e={g.emoji} size={14} /> {g.name}
                   </td>
-                  <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                  <td className="m-stat" data-label="On the line" style={{ ...td, whiteSpace: 'nowrap' }}>
                     {have.toLocaleString()} <span style={{ color: 'var(--text-dim)' }}>/ {need.toLocaleString()} needed</span>
                   </td>
-                  <td style={{ ...td, color: tone }}>
+                  <td className="m-stat m-wide" data-label="Status" style={{ ...td, color: tone }}>
                     {short ? `${missing.toLocaleString()} short`
                       : spare > 0 ? `${spare.toLocaleString()} in reserve (${Math.round(c.reserveRatio * 100)}%)`
                       : 'Fully staffed'}
@@ -686,12 +686,12 @@ function StaffingSummary({ crew, labor, dispatch, autoStaff, autoRelease = false
                       </button>
                     )}
                   </td>
-                  <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  <td className="m-stat m-wide" data-label="On the way" style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                     {training + recruiting <= 0 ? '—'
                       : [training > 0 ? `${training.toLocaleString()} training${c.nextReady != null ? ` (next in ${Math.max(1, c.nextReady)} wk)` : ''}` : null,
                          recruiting > 0 ? `${recruiting.toLocaleString()} recruiting` : null].filter(Boolean).join(' · ')}
                   </td>
-                  <td style={td}>
+                  <td className="m-stat m-wide m-last" data-label="Reserve level" style={td}>
                     <select className="form-select" value={String(c.reserveLevel)}
                       aria-label={`Reserve level for ${g.name.toLowerCase()}`}
                       style={{ padding: '2px 6px', fontSize: 12, width: 'auto' }}
@@ -703,7 +703,7 @@ function StaffingSummary({ crew, labor, dispatch, autoStaff, autoRelease = false
                       ))}
                     </select>
                   </td>
-                  <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: reserveCost > 0 ? 'var(--red)' : 'var(--text-dim)' }}>
+                  <td className="m-stat" data-label="Reserve pay" style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: reserveCost > 0 ? 'var(--red)' : 'var(--text-dim)' }}>
                     {reserveCost > 0 ? `−${formatMoney(reserveCost)}/wk` : '—'}
                   </td>
                 </tr>

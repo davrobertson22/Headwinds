@@ -2702,3 +2702,75 @@ body:has(.app-layout-map) .toast-stack { right: 70px !important; bottom: 100px !
   /* SlotCell stacks status over button, right-aligned (inline): side by side here. */
   .fc-slots > div { flex-direction: row !important; align-items: center !important; flex-wrap: wrap; gap: 4px 10px !important; }
 }
+
+/* ── Card tables (mobile batch 3, 2026-11-19) ─────────────────────────────────
+   One reusable phone layout for list tables: table.m-cards, rows tr.m-row.
+   Below 640px each row is a card on a 6-column grid:
+     td.m-head   the row's identity (name, code, badges): 4 columns, first line
+     td.m-act    its buttons: 2 columns, right of the name
+                 (table.m-act-wide: 3 and 3, for a pair of buttons)
+     td.m-stat   a figure, labelled from data-label: 2 columns, three a row
+                 (.m-wide: 4 columns, .m-full: the whole line, .m-last: last)
+     td.m-hide   an empty filler cell (a totals row's blank column)
+   The header row hides, so a table that sorts by its headers adds a
+   MobileSortPicker (.m-sortbar). Cells are often inline-styled, hence the
+   !important on padding, alignment and borders. Desktop is untouched. */
+.m-sortbar { display: none; }
+@media (max-width: 640px) {
+  .m-sortbar { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+  .m-sortbar label { flex: 0 0 auto; color: var(--text-muted); font-size: 13px; }
+  .m-sortbar select {
+    flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; border-radius: 8px;
+    background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  }
+  .m-sortbar .m-sortdir { flex: 0 0 auto; min-height: 40px; padding: 0 12px; font-size: 14px; }
+
+  table.m-cards { display: block; min-width: 0 !important; }
+  table.m-cards thead { display: none; }
+  table.m-cards tbody, table.m-cards tfoot { display: block; }
+  table.m-cards tbody > tr:not(.m-row),
+  table.m-cards tbody > tr:not(.m-row) > td { display: block; white-space: normal !important; }
+  table.m-cards tr.m-row {
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px 10px; padding: 12px; align-items: start;
+    border-bottom: 1px solid var(--border);
+  }
+  table.m-cards tr.m-row > td {
+    display: block; min-width: 0;
+    padding: 0 !important; border: none !important; text-align: left !important;
+    white-space: normal !important; max-width: none !important; width: auto !important;
+    min-width: 0 !important;
+  }
+  table.m-cards .m-hide { display: none !important; }
+  table.m-cards .m-head { grid-column: span 4; order: -2; font-size: 14px; font-weight: 600; }
+  table.m-cards .m-act  { grid-column: span 2; order: -1; align-self: center; text-align: right !important; }
+  table.m-cards.m-act-wide .m-head { grid-column: span 3; }
+  table.m-cards.m-act-wide .m-act  { grid-column: span 3; }
+  table.m-cards .m-stat { grid-column: span 2; font-size: 14px; }
+  table.m-cards .m-stat.m-wide { grid-column: span 4; }
+  table.m-cards td.m-head:last-child, table.m-cards td.m-full { grid-column: 1 / -1; }
+  table.m-cards .m-last { order: 1; }
+  table.m-cards .m-stat::before {
+    content: attr(data-label); display: block; margin-bottom: 1px;
+    font-size: 11px; font-weight: 400; color: var(--text-dim);
+    white-space: nowrap; text-transform: none; letter-spacing: 0;
+  }
+  table.m-cards .m-act .btn { min-height: 40px; min-width: 40px; padding: 0 12px !important; font-size: 14px !important; }
+
+  /* Finance statements stay tables (every table scrolls sideways on phones,
+     Phase 4 above): pin the first column, the line-item label, so it stays in
+     view while the figures scroll under it. */
+  .finance-page table:not(.m-cards) tr > :first-child {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--surface); box-shadow: 1px 0 0 var(--border);
+  }
+}
+
+/* Headwinds: the in-game Rivals leaderboard (Competition.jsx) is cards already;
+   on a phone the sparkline and the 96px figure column squeezed the name and
+   stats into a strip. */
+@media (max-width: 640px) {
+  .lb-row { padding: 10px 12px !important; gap: 10px !important; }
+  .lb-row .lb-spark { display: none !important; }
+  .lb-row .lb-value { min-width: 0 !important; }
+}

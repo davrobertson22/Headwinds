@@ -226,7 +226,8 @@ function FinanceInner({ initialView, group = null }) {
   const activeGroup = GROUPS.find(g => g.views.includes(view)) ?? GROUPS[0];
 
   return (
-    <div>
+    // finance-page: on phones its statements pin their label column (index.css "Card tables").
+    <div className="finance-page">
       {!allowed && <div className="fin-group-tabs">
         {GROUPS.map(g => (
           <button
