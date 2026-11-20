@@ -25,7 +25,7 @@ import {
   fleetComplexityMultiplier, COMPLEXITY_AFFECTED_GROUPS,
   FLEET_COMPLEXITY_PCT_PER_EXTRA_FAMILY,
 } from '../data/families.js';
-import { formatMoney, weeklyBlockHours, routeDistanceKm } from '../utils/simulation.js';
+import { formatMoney, weeklyBlockHours, routeDistanceKm, turnTimeEffectsOf } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { dueInfo, autoSchedulingActive, AUTO_SCHEDULE_PAY_MIN, AUTO_SCHEDULE_BUDGET_MIN } from '../data/maintenance.js';
 import { absoluteWeek } from '../utils/fuel.js';
@@ -44,6 +44,7 @@ import { consumeNavFilter } from '../utils/navIntent.js';
 import ScheduleTimeline from './ScheduleTimeline.jsx';
 import { Glyph } from './Icons.jsx';
 import { coverGapLine } from '../utils/coverGapText.js';
+import { TurnTimesCard } from './TurnTimes.jsx';
 
 // ─── Headcount ────────────────────────────────────────────────────────────────
 //
@@ -72,11 +73,13 @@ const sliderStyle = { width: '100%' };
 
 // ─── Morale bar ───────────────────────────────────────────────────────────────
 
-function MoraleBar({ morale, payMultiplier, reserveLift = 0 }) {
+function MoraleBar({ morale, payMultiplier, reserveLift = 0, turnLift = 0 }) {
   const color  = moraleColor(morale);
   // Reserve staff add to what pay alone buys — the same sum the weekly tick uses.
   const lift   = Math.round(reserveLift * 10) / 10;
-  const target = Math.min(100, Math.round(moraleTarget(payMultiplier) + reserveLift));
+  // Turn times (models/turnTimes.js) push it either way.
+  const tl     = Math.round(turnLift * 10) / 10;
+  const target = Math.max(5, Math.min(100, Math.round(moraleTarget(payMultiplier) + reserveLift + turnLift)));
   const trend  = target > morale + 1 ? '↑' : target < morale - 1 ? '↓' : '↔';
   const trendColor = trend === '↑' ? 'var(--green)' : trend === '↓' ? 'var(--red)' : 'var(--text-dim)';
 
@@ -90,7 +93,7 @@ function MoraleBar({ morale, payMultiplier, reserveLift = 0 }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
         <span style={{ color }}>Morale: {Math.round(morale)}% — {band}</span>
-        <span style={{ color: trendColor, fontSize: 11 }}>{trend} trending toward {target}%{lift >= 0.5 ? ` (+${lift % 1 === 0 ? lift : lift.toFixed(1)} from reserves)` : ''}</span>
+        <span style={{ color: trendColor, fontSize: 11 }}>{trend} trending toward {target}%{lift >= 0.5 ? ` (+${lift % 1 === 0 ? lift : lift.toFixed(1)} from reserves)` : ''}{Math.abs(tl) >= 0.5 ? ` (${tl > 0 ? '+' : '−'}${Math.abs(tl).toFixed(Math.abs(tl) % 1 === 0 ? 0 : 1)} from turn times)` : ''}</span>
       </div>
       <div style={{ height: 6, background: 'var(--surface3)', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{
@@ -169,7 +172,7 @@ function StrikeBanner({ strike, labor, dispatch }) {
 
 // ─── Labor group card ─────────────────────────────────────────────────────────
 
-function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexityMult = 1.0, familyCount = 1, unrest = 0, onStrike = false, crew = null, cash = 0, lineUnits = null, autoStaff = false, seniority = 1 }) {
+function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexityMult = 1.0, familyCount = 1, unrest = 0, onStrike = false, crew = null, cash = 0, lineUnits = null, autoStaff = false, seniority = 1, turnLift = 0 }) {
   const { payMultiplier: committedPay, morale } = groupState;
   // With "Keep me fully staffed" on, the game does the hiring and the card is a
   // status line; the hiring tools sit behind "Show details". Without it they
@@ -568,7 +571,7 @@ function LaborCard({ group, groupState, fleetSize, headcount, dispatch, complexi
       </div>
 
       {/* Morale */}
-      <MoraleBar morale={morale} payMultiplier={payMultiplier} reserveLift={crew?.moraleLift ?? 0} />
+      <MoraleBar morale={morale} payMultiplier={payMultiplier} reserveLift={crew?.moraleLift ?? 0} turnLift={turnLift} />
 
       {/* Union unrest (only worth showing once it exists, or during a strike) */}
       {(unrest >= 5 || onStrike) && <UnrestBar unrest={unrest} />}
@@ -890,6 +893,8 @@ export default function Operations({ section = null } = {}) {
                     short: crewGapEngine?.byGroup?.[g.id] ?? 0 }];
   })) : null;
   const crewGap = crewGapEngine;
+  // Turn times (models/turnTimes.js): the morale pull the tick applies.
+  const turnFx = turnTimeEffectsOf(state);
 
   // Headcount, in people, from the same requirement the crew box shows.
   const headcounts = Object.fromEntries(
@@ -1139,8 +1144,11 @@ export default function Operations({ section = null } = {}) {
           onStrike={laborRelations.strike?.group === group.id}
           crew={crew?.[group.id] ?? null}
           cash={state.cash ?? 0}
+          turnLift={turnFx.moraleLift?.[group.id] ?? 0}
         />
       ))}
+
+      <TurnTimesCard state={state} dispatch={dispatch} />
 
       {/* Maintenance moved to its own page — see components/Maintenance.jsx */}
       <div className="card" style={{ padding: '12px 18px', marginTop: 16 }}>

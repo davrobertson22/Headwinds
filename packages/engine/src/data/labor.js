@@ -899,6 +899,11 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   // misconnecting crews (see "Reserve staff" below). Attached by the weekly
   // tick in crew-pipeline saves; absent everywhere else → zero.
   const reserveBonus = Math.max(0, Number(labor?.reserveOtpBonus) || 0);
+  // `turnOtpDelta` is the fifth, and the only SIGNED one: the player's turn
+  // times (models/turnTimes.js) — quick turns cost on-time rate, padded turns
+  // buy a little. Attached by the weekly tick only when a turn is set off
+  // standard; absent everywhere else → zero.
+  const turnDelta = Number(labor?.turnOtpDelta) || 0;
   const pilots  = labor?.pilots?.morale          ?? 80;
   const cabin   = labor?.cabinCrew?.morale        ?? 80;
   const ground  = labor?.groundStaff?.morale      ?? 80;
@@ -908,7 +913,7 @@ export function laborEffects(labor, avgUtilization = null, satisfaction = null) 
   return {
     // 0.55 at zero blended morale → 1.00 at full, minus schedule pressure
     onTimeRate: Math.max(0.35, Math.min(1,
-      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta + stationBonus + reserveBonus)),
+      0.55 + (otpMorale / 100) * 0.45 - utilizationOnTimePenalty(avgUtilization) - otpDelta - crewDelta + stationBonus + reserveBonus + turnDelta)),
     // 0–5 stars: earned from the satisfaction track record when available,
     // otherwise (legacy) directly from cabin crew morale
     customerRating:           satisfaction != null

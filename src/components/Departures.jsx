@@ -5,7 +5,7 @@ import {
 } from '../models/departureBoard.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { getAirport } from '../data/airports.js';
-import { routeLegs, routeStops, fleetAvgUtilization, currentGameDate, isRouteActive } from '../utils/simulation.js';
+import { routeLegs, routeStops, fleetAvgUtilization, currentGameDate, isRouteActive, laborWithTurnTimes } from '../utils/simulation.js';
 import { airlineWeeks, weekDepartures, wrapWeek, scheduleInputsOf } from '../models/schedule.js';
 import { utcOffsetMinutes } from '../data/timezones.js';
 import { laborEffects } from '../data/labor.js';
@@ -96,7 +96,7 @@ export default function Departures({ initialAirport = null }) {
   const playerOtp = useMemo(() => {
     try {
       return laborEffects(
-        state.labor ?? null,
+        laborWithTurnTimes(state),
         fleetAvgUtilization(fleet, [...routes, ...(state.cargoRoutes ?? [])]),
         state.satisfaction ?? null,
       ).onTimeRate;

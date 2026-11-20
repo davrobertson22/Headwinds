@@ -179,7 +179,7 @@ export function tailFlightPlans({ groups = [], cargoGroups = [], fleet = [], mon
       legKm: stops.slice(1).map((s, i) => routeDistanceKm(stops[i].code, s.code)),
       weeklyFrequency: r.weeklyFrequency,
       cruiseKmh: cruiseSpeedKmh(type),
-      turnaroundH: turnaroundHours(type),
+      turnaroundH: turnaroundHours(type, r),
       startsH,
     });
     if (plan) plans.push(plan);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../store/GameContext.jsx';
 import { useConfirm } from './ConfirmModal.jsx';
-import { formatMoney, routeStops, currentGameDate, fleetAvgUtilization } from '../utils/simulation.js';
+import { formatMoney, routeStops, currentGameDate, fleetAvgUtilization, laborWithTurnTimes } from '../utils/simulation.js';
 import { laborEffects } from '../data/labor.js';
 import {
   TRAVEL_PARTNERS, TRAVEL_PARTNER_MAP, TP_TYPES, TP_TYPE_ORDER, TP_INSTALMENTS, TP_TERM_WEEKS,
@@ -115,7 +115,7 @@ export default function Partnerships() {
     const util = fleetAvgUtilization(state.fleet ?? [], [...(state.routes ?? []), ...(state.cargoRoutes ?? [])]);
     return measureTravelPartners(TRAVEL_PARTNERS.map(p => p.id), {
       routes: state.routes ?? [], routeResults: report.routeResults ?? [], fleet: state.fleet ?? [],
-      onTimeRate: laborEffects(state.labor ?? null, util, state.satisfaction ?? null).onTimeRate,
+      onTimeRate: laborEffects(laborWithTurnTimes(state), util, state.satisfaction ?? null).onTimeRate,
       month, stopsOf: routeStops,
     });
   }, [state.routes, state.fleet, state.labor, state.satisfaction, report.routeResults, month]);  // eslint-disable-line

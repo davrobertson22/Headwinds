@@ -31,6 +31,7 @@
 
 import { baseCityPairDemand, referencePrice, routeDistance, nwrYieldChokeFactor, pairDemandGrowth, getEraCalendarYear, getDemandModel, metroPrimary, sectorCostKm, scheduleConvenience, scheduleDemandOn } from '../utils/market.js';
 import { cabinProductPoints } from '../data/seatProducts.js';
+import { rivalTurnScale } from './turnTimes.js';
 import { SEASONS as V2_SEASONS } from '../data/demandV2Seasons.js';
 import { SEASONS as V3_SEASONS, CLASS_SEASONS as V3_CLASS_SEASONS } from '../data/demandV3Seasons.js';
 import { pairAppeal, metroPairKeyOf } from '../data/metros.js';
@@ -2983,6 +2984,12 @@ export const TIER_SEAT_TARGET = { budget: 160, legacy: 250, premium: 330 };
 
 /** Approx one-way block time (hours): ~820 km/h cruise + 0.5h taxi/turn. */
 function blockTimeOneWay(distKm) { return distKm / 820 + 0.5; }
+/** A rival's sector block time with its tier's turn: budget carriers run quick
+ *  turns (models/turnTimes.js rivalTurnScale). Exactly blockTimeOneWay otherwise. */
+function rivalBlockTimeOneWay(tier) {
+  const scale = rivalTurnScale(tier);
+  return scale === 1 ? blockTimeOneWay : (distKm) => distKm / 820 + 0.5 * scale;
+}
 
 /**
  * Pick the aircraft type a `tier` carrier would fly on a route of `distKm`.
@@ -3050,9 +3057,10 @@ export function pickLargerCompetitorAircraftType(distKm, minSeats, { prefer = nu
 }
 
 /** Tails needed to fly `frequency` weekly departures over `distKm`, assuming ~98 utilisable block-h/tail/wk. */
-export function tailsForRoute(distKm, frequency) {
+/** `tier` (optional): the carrier's tier — budget rivals turn faster, so need fewer tails. */
+export function tailsForRoute(distKm, frequency, tier = null) {
   const WEEKLY_BLOCK_PER_TAIL = 14 * 7;   // 98h
-  const blockPerWeek = blockTimeOneWay(distKm) * frequency * 2;  // round trips
+  const blockPerWeek = rivalBlockTimeOneWay(tier)(distKm) * frequency * 2;  // round trips
   return Math.max(1, Math.ceil(blockPerWeek / WEEKLY_BLOCK_PER_TAIL));
 }
 
@@ -3084,7 +3092,7 @@ export function buildCompetitorFleet(airline) {
     const dist   = routeDistance(a, b);
     const type   = pickCompetitorAircraftType(dist, airline.tier);
     if (!type) { routes[routeKey] = cfg; continue; }   // no in-range type — leave unflown
-    const tails  = tailsForRoute(dist, cfg.frequency ?? 7);
+    const tails  = tailsForRoute(dist, cfg.frequency ?? 7, airline.tier);
     routes[routeKey] = { ...cfg, aircraftType: type.id, seats: maxSeatsForRange(type, dist), tails };
     for (let i = 0; i < tails; i++) fleet.push(makeCompetitorTail(airline.id, type.id, routeKey, true));
   }
@@ -3134,7 +3142,7 @@ export function healAnachronisticCompetitorFleets(competitors, calYear) {
         .filter(t => !t.aiSkip && (t.range ?? 0) >= dist && maxSeatsForRange(t, dist) <= wasSeats && aircraftOrderable(t, calYear))
         .sort((x, y) => Math.abs(maxSeatsForRange(x, dist) - target) - Math.abs(maxSeatsForRange(y, dist) - target))[0];
       if (!type) { delete routes[routeKey]; continue; }   // nothing of the era can fly it — drop the route
-      routes[routeKey] = { ...cfg, aircraftType: type.id, seats: maxSeatsForRange(type, dist), tails: tailsForRoute(dist, cfg.frequency ?? 7) };
+      routes[routeKey] = { ...cfg, aircraftType: type.id, seats: maxSeatsForRange(type, dist), tails: tailsForRoute(dist, cfg.frequency ?? 7, c.tier) };
       swapped.set(routeKey, type.id);
     }
     const fleet = (c.fleet ?? [])
@@ -3595,7 +3603,7 @@ export function tickCompetitorGrowth(competitors, weekNumber) {
       if (!type) continue;   // no in-range aircraft → carrier can't open this route
 
       const isUpgrade = entry.routeKey in newRoutes;
-      const tails     = tailsForRoute(dist, entry.frequency);
+      const tails     = tailsForRoute(dist, entry.frequency, airline.tier);
 
       // Replace this route's tails with the new requirement (fresh deliveries).
       const keptFleet = isUpgrade ? newFleet.filter(f => f.routeKey !== entry.routeKey) : newFleet;

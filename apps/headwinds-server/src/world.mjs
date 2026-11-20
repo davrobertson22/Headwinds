@@ -67,6 +67,10 @@ export const ALLOWED_PLAYER_ACTIONS = new Set([
   // Holds (peak-hour worlds): wait at a route's far end until a local time.
   // The guard checks the routes are this airline's and cleans the minutes.
   'SET_ROUTE_HOLDS',
+  // Turn times (models/turnTimes.js): per aircraft class and per route. The
+  // guard keeps to known classes and this airline's routes; the reducer clamps
+  // and refuses any change that breaks a tail's block-hour cap.
+  'SET_TURN_TIMES', 'SET_ROUTE_TURN',
   // Fuel farms (§8): capex, thresholds, the ownership race and the close refund
   // are the reducer's (canTakeFarm); the guard checks the airport code.
   'BUY_FUEL_STAKE', 'BUILD_FUEL_FARM', 'CLOSE_FUEL_FARM',

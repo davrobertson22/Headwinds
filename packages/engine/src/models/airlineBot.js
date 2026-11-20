@@ -82,6 +82,7 @@
 import { AIRCRAFT_TYPES, getAircraftType, aircraftOrderable, lessorSupplies, eraWeeklyLease, eraDeliveredAgeWeeks, eraPurchasePrice } from '../data/aircraft.js';
 import { checkRouteRestrictions } from '../data/airportRestrictions.js';
 import { AIRPORTS, getAirport } from '../data/airports.js';
+import { setPlayerTurnTimes } from './turnTimes.js';
 import { weeklyFamilyBaseCost } from '../data/families.js';
 import { LOAN_MIN_PRINCIPAL, borrowingCapacity, totalDebtOutstanding } from '../data/credit.js';
 import { LABOR_GROUPS, crewAvailable, crewInTraining, crewRequiredAhead, crewScaleFor, reserveTarget,
@@ -482,6 +483,7 @@ export function compareTypes(state, memory, P = BOT_TIERS.cautious, canLease = (
  * @returns {{ typeId, score, weekly }|null}
  */
 export function startProspect(state, { canLease = () => true, tier = 'cautious', params = null } = {}) {
+  setPlayerTurnTimes(state?.turnTimes ?? null);
   const P = { ...(BOT_TIERS[tier] ?? BOT_TIERS.cautious), ...(params ?? {}) };
   const best = compareTypes(state, newBotMemory(), P, canLease)[0];
   return best ? { typeId: best.id, score: best.score, weekly: best.weekly } : null;
@@ -502,6 +504,9 @@ export function startProspect(state, { canLease = () => true, tier = 'cautious',
  */
 export function runBotTurn(state, memory, { apply, canLease = () => true, explain = null, tier = 'cautious', params = null } = {}) {
   if (typeof apply !== 'function') throw new Error('runBotTurn needs apply(state, action)');
+  // Block hours below read this airline's turns (models/turnTimes.js), not
+  // whichever airline the server last handled.
+  setPlayerTurnTimes(state?.turnTimes ?? null);
   const P = { ...(BOT_TIERS[tier] ?? BOT_TIERS.cautious), ...(params ?? {}) };
   const mem = { ...newBotMemory(), ...JSON.parse(JSON.stringify(memory ?? {})), v: BOT_MEMORY_VERSION };
   const actions = []; const refused = [];

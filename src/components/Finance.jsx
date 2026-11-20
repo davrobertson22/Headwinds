@@ -8,8 +8,7 @@ import {
   weeklyBlockHours, routeDistanceKm, weekToGameDate, fleetAvgUtilization,
   buildEventDemandModel,
   stateLoungeFields, stateGroundHandlingFields, stateCateringFields, weeklyGateFeeAt,
-  calendarYearFrac,
-} from '../utils/simulation.js';
+  calendarYearFrac, laborWithTurnTimes } from '../utils/simulation.js';
 import { getAircraftType } from '../data/aircraft.js';
 import { effectiveMaintAgeWeeks } from '../data/maintenance.js';
 import { getAirport } from '../data/airports.js';
@@ -527,7 +526,7 @@ function PLStatement({ proj }) {
   const cargoRoutesState = state.cargoRoutes ?? [];
 
   // Catering / layover / compensation — canonical totals; per-route detail for display.
-  const { onTimeRate } = laborEffects(labor, avgUtilization, state.satisfaction ?? null);
+  const { onTimeRate } = laborEffects(laborWithTurnTimes(state), avgUtilization, state.satisfaction ?? null);
   const cateringByRoute = routeData.map(({ route, aircraft, result }) => {
     const type = getAircraftType(aircraft.typeId);
     const catering     = result.cateringCost     ?? weeklyCateringCost(result.classSummary ?? {});
@@ -535,7 +534,7 @@ function PLStatement({ proj }) {
     const cateringLevel = normalizeCateringLevel(route.cateringLevel);
     const cateringPlanName = planForRef(route.cateringLevel, state.cateringPlans)?.name ?? null;
     const dist         = result.distance ?? routeDistanceKm(route.origin, route.destination);
-    const blockHrs     = type ? blockTimeHours(dist, type) : 0;
+    const blockHrs     = type ? blockTimeHours(dist, type, route) : 0;
     const layover      = result.layoverCost      ?? weeklyLayoverCost(blockHrs, type?.seats ?? 150, type?.category ?? 'Narrow Body', route.weeklyFrequency);
     const compensation = result.compensationCost ?? weeklyPassengerCompensation(result.passengers * 2, onTimeRate, dist);
     return { route, aircraft, type, catering, cateringRev, cateringLevel, cateringPlanName, layover, compensation, dist, blockHrs };

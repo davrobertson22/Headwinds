@@ -24,8 +24,9 @@ import {
   blockHourFit, blockTimeHours,
   applyScheduleTrimMigration, rangeStrandedRoutes,
   applyReserveCovers, planCovers, freighterBodyClass, formatMoney,
-  calcReconfCost, refitWeeks, fleetAvgUtilizationOf,
+  calcReconfCost, refitWeeks, fleetAvgUtilizationOf, turnTimeEffectsOf, turnTimeBreaches,
 } from './utils/simulation.js';
+import { setPlayerTurnTimes, cleanTurnTimes, clampTurnForClass, turnClassKey } from './models/turnTimes.js';
 import { computeMarketCap, referencePrice as mktReferencePrice, TOTAL_SHARES, cargoReferenceYield,
          setFareIndex, setNwrYieldChoke, setEraStartYear, setEraCalendarYear, setDemandModel,
          VALUATION, STOCK_MARKET, loanOutstanding, emptyPortfolio,
@@ -2190,6 +2191,7 @@ function reducer(state, action) {
   // Demand model (utils/market.js "Demand model v2"): baked into the airline at
   // join from its world; absent = classic. Every airline in a world shares it.
   setDemandModel(state?.demandModel);
+  setPlayerTurnTimes(state?.turnTimes ?? null);   // this airline's turn times (models/turnTimes.js)
   // Market development (models/marketDev.js): the WORLD's table, injected by
   // the rival overlay (server humanRivals.mjs) on every read and tick; absent
   // or unflagged → off. The server tick advances it, never the reducer.
@@ -4731,6 +4733,61 @@ function reducer(state, action) {
       };
     }
 
+    // action: { byClass: { [classKey]: minutes | null } } — the fleet-wide
+    // standard turn per aircraft class (models/turnTimes.js). Merged into the
+    // current settings; null (or the standard) puts a class back on standard.
+    // Free and instant; the tick reads it (block hours, on-time rate, morale).
+    // Refused when it would push any tail past its weekly block-hour cap — the
+    // Operations card names those tails before the player can press Save.
+    case 'SET_TURN_TIMES': {
+      const want = action.byClass;
+      if (!want || typeof want !== 'object' || Array.isArray(want)) return state;
+      const merged = { ...(state.turnTimes?.byClass ?? {}) };
+      for (const [k, v] of Object.entries(want)) {
+        if (v == null) delete merged[k]; else merged[k] = v;
+      }
+      const next = cleanTurnTimes({ byClass: merged });
+      if (JSON.stringify(next) === JSON.stringify(state.turnTimes ?? null)) return state;
+      if (turnTimeBreaches(state, { turnTimes: next }).length) return state;
+      setPlayerTurnTimes(next);
+      if (next) return { ...state, turnTimes: next };
+      const { turnTimes: _old, ...rest } = state;
+      return rest;
+    }
+
+    // action: { routeId, turnMin: minutes | null } — one route's own turn,
+    // overriding its class's setting (route.schedule.turnMin). Passenger or
+    // freight route; charters can't be overridden. null goes back to the
+    // fleet setting. Refused when it would push the tail past its cap.
+    case 'SET_ROUTE_TURN': {
+      const fleet = state.fleet ?? [];
+      const apply = (r) => {
+        if (r.id !== action.routeId || r.charter) return r;
+        const type = getAircraftType(fleet.find(a => a.id === r.aircraftId)?.typeId);
+        if (!type) return r;
+        const v = action.turnMin == null ? null : clampTurnForClass(turnClassKey(type), action.turnMin);
+        if (v === (r.schedule?.turnMin ?? null)) return r;
+        const { turnMin: _old, ...sched } = r.schedule ?? {};
+        if (v == null) {
+          if (Object.keys(sched).length) return { ...r, schedule: sched };
+          const { schedule: _s, ...rest } = r;
+          return rest;
+        }
+        return { ...r, schedule: { ...sched, turnMin: v } };
+      };
+      const routes = (state.routes ?? []).map(apply);
+      const cargoRoutes = (state.cargoRoutes ?? []).map(apply);
+      const changedPax = routes.some((r, i) => r !== state.routes[i]);
+      const changedCargo = cargoRoutes.some((r, i) => r !== (state.cargoRoutes ?? [])[i]);
+      if (!changedPax && !changedCargo) return state;
+      if (turnTimeBreaches(state, { routes, cargoRoutes }).length) return state;
+      return {
+        ...state,
+        routes: changedPax ? routes : state.routes,
+        cargoRoutes: changedCargo ? cargoRoutes : state.cargoRoutes,
+      };
+    }
+
     // action: { banks: { [hubCode]: setting | null } } — hub-bank worlds only.
     // How each designated hub runs its waves: { mode: 'rolling' },
     // { mode: 'banks', count: 3|4|6 } or { mode: 'banks', times: [local min] };
@@ -6763,6 +6820,9 @@ function reducer(state, action) {
         : (state.labor ?? DEFAULT_LABOR_STATE);
       const grievancePrev = relationsPrev.grievance ?? DEFAULT_LABOR_RELATIONS.grievance;
       const updatedLabor = {};
+      // Turn times (models/turnTimes.js): quick turns wear ground staff (and a
+      // little cabin crew) down; padded turns ease them. Zero on standard turns.
+      const turnLift = turnTimeEffectsOf(state).moraleLift;
       // Crew pipeline (A7): the week we are advancing INTO — batches whose
       // training finishes by then join the line.
       const crewAbsWeek = absoluteWeek(state.year ?? 1, state.week ?? 1) + 1;
@@ -6774,7 +6834,8 @@ function reducer(state, action) {
         // rosters with slack. Zero without spare people or the crew pipeline.
         const reserveLift = state.crewPipeline && g.headcount != null
           ? reserveMoraleBonus(currentLabor, id, state.fleet ?? [], (a) => getAircraftType(a.typeId)) : 0;
-        const target   = grievedMoraleTarget(Math.min(100, moraleTarget(g.payMultiplier) + reserveLift), grievancePrev?.[id]);
+        const turnShift = turnLift?.[id] ?? 0;
+        const target   = grievedMoraleTarget(Math.max(5, Math.min(100, moraleTarget(g.payMultiplier) + reserveLift + turnShift)), grievancePrev?.[id]);
         const newMorale = g.morale + (target - g.morale) * 0.12;
         const morale = Math.max(5, Math.min(100, Math.round(newMorale * 10) / 10));
         if (!state.crewPipeline || g.headcount == null) {
@@ -9026,6 +9087,12 @@ export { rootReducer as gameReducer, freshState, reconcileState };
  */
 function reconcileState(parsed) {
   if (!parsed) return freshState();
+  // Turn times (models/turnTimes.js): well-formed or dropped.
+  if (parsed.turnTimes != null) {
+    const tt = cleanTurnTimes(parsed.turnTimes);
+    parsed = { ...parsed };
+    if (tt) parsed.turnTimes = tt; else delete parsed.turnTimes;
+  }
 
   // 1. De-duplicate fleet: if two aircraft share an ID, keep the last one.
   const seenIds = new Map();

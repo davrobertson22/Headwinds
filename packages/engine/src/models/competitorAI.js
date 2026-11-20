@@ -502,7 +502,7 @@ export function tickCompetitorAI(competitors, ctx) {
         const floor   = Math.max(MIN_FREQUENCY, Math.round(cfg.frequency * (1 - TRIM_STEP)));
         const newFreq = Math.min(cfg.frequency - 1, Math.max(want, floor, MIN_FREQUENCY));
         if (newFreq >= cfg.frequency) continue;
-        const newTails = tailsForRoute(dist, newFreq);
+        const newTails = tailsForRoute(dist, newFreq, c.tier);
         const surplus  = Math.max(0, (cfg.tails ?? 1) - newTails);
         if (projected(key, { ...cfg, frequency: newFreq, tails: Math.max(1, (cfg.tails ?? 1) - surplus) }) < p.profit) continue;
         if (surplus > 0) {
@@ -559,7 +559,7 @@ export function tickCompetitorAI(competitors, ctx) {
         const step    = Math.max(1, Math.round(cfg.frequency * GROW_STEP));
         const newFreq = Math.min(MAX_FREQUENCY, cfg.frequency + step, Math.max(cfg.frequency + 1, want));
         if (newFreq <= cfg.frequency) continue;
-        const newTails = tailsForRoute(dist, newFreq);
+        const newTails = tailsForRoute(dist, newFreq, c.tier);
         const addTails = Math.max(0, newTails - tails);
         const cost     = tailDeposit(type, addTails);
         if (cash - cost < reserve) continue;
@@ -628,7 +628,7 @@ export function tickCompetitorAI(competitors, ctx) {
         const dist   = routeDistance(a, b);
         const type   = cfg.aircraftType ? getAircraftType(cfg.aircraftType) : pickCompetitorAircraftType(dist, c.tier);
         if (!type) continue;
-        const needTails = tailsForRoute(dist, targetFreq);
+        const needTails = tailsForRoute(dist, targetFreq, c.tier);
         const addTails  = Math.max(0, needTails - (cfg.tails ?? 1));
         const cost      = tailDeposit(type, addTails);
         if (cash - cost < reserve * 0.5) continue;
@@ -748,7 +748,7 @@ export function tickCompetitorAI(competitors, ctx) {
       if (cand) {
         const type = pickCompetitorAircraftType(cand.dist, c.tier);
         if (type) {
-          const tails = tailsForRoute(cand.dist, cand.frequency);
+          const tails = tailsForRoute(cand.dist, cand.frequency, c.tier);
           const cost  = tailDeposit(type, tails);
           if (cash - cost >= reserve) {
             cash -= cost;

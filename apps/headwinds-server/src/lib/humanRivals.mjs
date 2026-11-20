@@ -18,6 +18,7 @@
 //
 // Injection is idempotent and rebuilt from scratch every time — a rival's
 // view is never trusted from the stored blob.
+import { setPlayerTurnTimes } from '@tailwinds/engine/models/turnTimes.js';
 import { createHash } from 'node:crypto';
 import { referencePrice, cargoReferenceYield, TOTAL_SHARES, setFareIndex, setNwrYieldChoke, setEraStartYear, setDemandModel } from '@tailwinds/engine/utils/market.js';
 import { eraFareIndex } from '@tailwinds/engine/data/era.js';
@@ -1428,6 +1429,7 @@ export async function buildWorldRivalViews(prisma, worldId, { airlines = null, s
     // result was derived under (rivalViewMemo starts over when it changes).
     const knobs = JSON.stringify([_fi, _st?.startYear ?? null, _st?.newWorldRestrictions === true, _st?.demandModel ?? null, fuelStationsOn(_st)]);
     setFuelStationDiscounts(null);   // rival views carry no airline's farms
+    setPlayerTurnTimes(null);        // …nor any airline's turn times (models/turnTimes.js)
     // The knobs above are set on every call (the request that follows may read
     // them before its reducer does). The derivation itself is remembered for
     // as long as these exact rows are — see pricedViewsFor.

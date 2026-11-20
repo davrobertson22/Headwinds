@@ -52,7 +52,7 @@ export function routeRotation(route, type) {
   const stops = routeStops(route);
   if (stops.length < 2 || !type) return null;
   const speed = cruiseSpeedKmh(type);
-  const turnMin = Math.round(turnaroundHours(type) * 60);
+  const turnMin = Math.round(turnaroundHours(type, route) * 60);
   const out = [];
   for (let i = 0; i < stops.length - 1; i++) {
     const km = routeDistanceKm(stops[i], stops[i + 1]);
@@ -384,6 +384,7 @@ function cachedWeek(routes, type, seed, staggerMin, bank = null) {
   const sig = [type.id, seed, staggerMin ?? '', bank?.ctx?.sig ?? '', bank?.peak ? 'P' : '', ...routes.map(r => [
     r.id, r.weeklyFrequency, routeStops(r).join('-'), (r.schedule?.starts ?? []).join('.'),
     bank?.cargoIds?.has(r.id) ? 'c' : '', bank?.peak ? (routeHold(r) ?? '') : '',
+    turnaroundHours(type, r),   // the route's turn (turnTimes.js): a setting change re-times the week
   ].join(':'))].join('|');
   const hit = WEEK_CACHE.get(sig);
   if (hit) return hit;

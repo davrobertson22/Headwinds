@@ -71,7 +71,7 @@ export function allocateFixedCosts({ routes = [], cargoRoutes = [], fleet = [], 
     }
     const type = getAircraftType(ac.typeId);
     const bh   = type
-      ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency ?? 0, type)
+      ? weeklyBlockHours(routeDistanceKm(r.origin, r.destination), r.weeklyFrequency ?? 0, type, r)
       : 0;
     rec.totalBh += bh;
     rec.entries.push({ id: r.id, bh });

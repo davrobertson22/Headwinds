@@ -65,6 +65,7 @@ import {
   rolloverTravelPartners, dueTravelInstalments, measureTravelPartners, settleTravelPartners,
 } from '../data/travelPartners.js';
 import { absoluteWeek as _absoluteWeek } from './fuel.js';
+import { turnHoursFor, turnMinutesFor, standardTurnHours, turnDeviation, playerTurnTable, setPlayerTurnTimes, turnEffects, turnClassKey as turnClassKeyOf } from '../models/turnTimes.js';
 import {
   buildRouteMarket,
   computeMarketShare,
@@ -1325,7 +1326,7 @@ export function routeQualityBreakdown(route, aircraft, state) {
   const avgUtilization = fleetAvgUtilizationOf(state.fleet, state.routes, state.cargoRoutes);
   const satisfaction = state.satisfaction ?? null;
   const { onTimeRate, customerRating, groundQualityBonus } =
-    laborEffects(state.labor ?? null, avgUtilization, satisfaction);
+    laborEffects(laborWithTurnTimes(state), avgUtilization, satisfaction);
 
   const fleetAgeYears = (aircraft.ageWeeks ?? 0) / 52;
   const onTimePts   = onTimeRate * 30;
@@ -1472,41 +1473,22 @@ const CRUISE_SPEED_KMH = {
   'Supersonic':   2180,  // Concorde cruise ~Mach 2.02
 };
 
-// Ground turnaround time by category (hours)
-const TURNAROUND_HOURS = {
-  'Turboprop':    0.50,   // 30 min
-  'Regional Jet': 0.67,   // 40 min
-  'Narrow Body':  0.83,   // 50 min
-  'Wide Body':    1.50,   // 90 min
-  'Double Deck':  2.00,   // 120 min — two boarding doors, complex deplaning
-  'Supersonic':   2.00,   // 120 min — complex servicing
-};
-
-// Freighters all share one category, so they can be stepped by neither the speed
-// nor the turnaround table above — a 9-tonne ATR and a 250-tonne An-225 would
-// otherwise both take the generic fallback. Turnaround steps by payload (loading
-// and unloading main-deck ULDs is what takes the time); speed comes from each
-// type's own `cruiseKmh` field.
-const FREIGHTER_TURNAROUND_HOURS = [
-  { maxTonnes:  20, hours: 0.75 },
-  { maxTonnes:  50, hours: 1.00 },
-  { maxTonnes: 130, hours: 1.50 },
-  { maxTonnes: Infinity, hours: 1.75 },
-];
-
 /** Cruise speed (km/h) for a type: explicit override, else its category. */
 export function cruiseSpeedKmh(type) {
   return type?.cruiseKmh ?? CRUISE_SPEED_KMH[type?.category] ?? 840;
 }
 
-/** Ground turnaround (hours) for a type: payload-stepped for freighters, else category. */
-export function turnaroundHours(type) {
-  if (type?.freighter) {
-    const t = type.payloadTonnes ?? 0;
-    return FREIGHTER_TURNAROUND_HOURS.find(b => t <= b.maxTonnes).hours;
-  }
-  return TURNAROUND_HOURS[type?.category] ?? 0.75;
+/**
+ * Ground turnaround (hours) for a type. `src` (models/turnTimes.js): a route
+ * (its override, else this game's class setting), a number of minutes, or
+ * nothing (the class setting). With no settings: the standard table, exactly.
+ */
+export function turnaroundHours(type, src = null) {
+  return turnHoursFor(type, src);
 }
+
+/** The standard turn (hours) for a type, whatever the player has set. */
+export { standardTurnHours };
 
 /**
  * Block time for one sector (hours).
@@ -1514,26 +1496,27 @@ export function turnaroundHours(type) {
  *
  * @param {number} distKm
  * @param {object} type  - aircraft type from AIRCRAFT_TYPES
+ * @param {object|number} [src] - the route (for its turn), or a turn in minutes
  */
-export function blockTimeHours(distKm, type) {
-  // + taxi/climb/approach time in a v2 world (market.js sectorTaxiHours; 0 classic).
-  return distKm / cruiseSpeedKmh(type) + turnaroundHours(type) + sectorTaxiHours(type);
+export function blockTimeHours(distKm, type, src = null) {
+  // + taxi/climb/approach time in a v2 game (market.js sectorTaxiHours; 0 classic).
+  return distKm / cruiseSpeedKmh(type) + turnaroundHours(type, src) + sectorTaxiHours(type);
 }
 
 /**
  * Total weekly block-hours consumed by an aircraft on a route (both directions).
  * Must be ≤ MAX_WEEKLY_BLOCK_HOURS.
  */
-export function weeklyBlockHours(distKm, weeklyFrequency, type) {
-  return blockTimeHours(distKm, type) * weeklyFrequency * 2;
+export function weeklyBlockHours(distKm, weeklyFrequency, type, src = null) {
+  return blockTimeHours(distKm, type, src) * weeklyFrequency * 2;
 }
 
 /**
  * Maximum weekly frequency that keeps block-hours within the cap.
- * Pass maxWeeklyBlockHoursFor(state) as capHours in restricted worlds.
+ * Pass maxWeeklyBlockHoursFor(state) as capHours for the game's own cap.
  */
-export function maxFrequency(distKm, type, capHours = MAX_WEEKLY_BLOCK_HOURS) {
-  const bt = blockTimeHours(distKm, type);
+export function maxFrequency(distKm, type, capHours = MAX_WEEKLY_BLOCK_HOURS, src = null) {
+  const bt = blockTimeHours(distKm, type, src);
   return bt > 0 ? Math.floor(capHours / (bt * 2)) : 0;
 }
 
@@ -1545,7 +1528,21 @@ export function maxFrequency(distKm, type, capHours = MAX_WEEKLY_BLOCK_HOURS) {
 export function routeBlockHours(route, type, weeklyFrequency) {
   const f = weeklyFrequency ?? route.weeklyFrequency ?? 7;
   return routeLegs(route).reduce(
-    (s, l) => s + blockTimeHours(routeDistanceKm(l.from, l.to), type) * f * 2, 0);
+    (s, l) => s + blockTimeHours(routeDistanceKm(l.from, l.to), type, route) * f * 2, 0);
+}
+
+/**
+ * routeBlockHours as schedule PRESSURE reads it (the on-time penalty for a
+ * busy fleet): a turn padded past standard is slack, not pressure, so it
+ * counts at standard; a turn cut below standard counts in full. Without this
+ * a longer turn would raise utilisation and LOWER the on-time rate.
+ */
+export function routePressureBlockHours(route, type, weeklyFrequency) {
+  const f = weeklyFrequency ?? route.weeklyFrequency ?? 7;
+  const std = standardTurnHours(type);
+  const turn = Math.min(turnaroundHours(type, route), std);
+  return routeLegs(route).reduce(
+    (s, l) => s + (routeDistanceKm(l.from, l.to) / cruiseSpeedKmh(type) + turn + sectorTaxiHours(type)) * f * 2, 0);
 }
 
 /**
@@ -1567,9 +1564,12 @@ export function fleetAvgUtilizationOf(fleet, routes, cargoRoutes) {
   if (!byRoutes) { byRoutes = new WeakMap(); AVG_UTIL_MEMO.set(f, byRoutes); }
   let byCargo = byRoutes.get(r);
   if (!byCargo) { byCargo = new WeakMap(); byRoutes.set(r, byCargo); }
-  let v = byCargo.get(c);
-  if (v === undefined) { v = fleetAvgUtilization(f, [...r, ...c]); byCargo.set(c, v); }
-  return v;
+  // The turn settings change the answer without changing any array (a turn
+  // cut below standard is pressure), so the entry remembers which table it saw.
+  const turns = playerTurnTable();
+  let e = byCargo.get(c);
+  if (e === undefined || e.turns !== turns) { e = { v: fleetAvgUtilization(f, [...r, ...c]), turns }; byCargo.set(c, e); }
+  return e.v;
 }
 
 export function fleetAvgUtilization(fleet = [], routes = []) {
@@ -1585,11 +1585,166 @@ export function fleetAvgUtilization(fleet = [], routes = []) {
     const type = getAircraftType(a.typeId);
     if (!type) continue;
     const rs  = byAircraft.get(a.id) ?? [];
-    const hrs = rs.reduce((s, r) => s + routeBlockHours(r, type, r.weeklyFrequency), 0);
+    // Pressure hours: padding past the standard turn is slack (turnTimes.js).
+    const hrs = rs.reduce((s, r) => s + routePressureBlockHours(r, type, r.weeklyFrequency), 0);
     sum += Math.max(0, Math.min(1, hrs / MAX_WEEKLY_BLOCK_HOURS));
     n++;
   }
   return n > 0 ? sum / n : 0;
+}
+
+/**
+ * The fleet's turn mix (docs/turn-times-design.md): every flying hour of every
+ * in-service tail, weighted by where its route's turn sits in its class's range
+ * (−1 floor, 0 standard, +1 ceiling). Returns { short, long, hours }: the
+ * block-hour-weighted averages of max(0, −d) and max(0, d). An idle tail has no
+ * hours, so padding a spare buys nothing. All zero when nothing is set.
+ */
+export function fleetTurnMix(fleet = [], routes = []) {
+  const typeById = new Map();
+  for (const a of fleet ?? []) {
+    if (isOutOfService(a)) continue;
+    const type = getAircraftType(a.typeId);
+    if (type) typeById.set(a.id, type);
+  }
+  let hours = 0, short = 0, long = 0;
+  for (const r of routes ?? []) {
+    const type = r?.aircraftId ? typeById.get(r.aircraftId) : null;
+    if (!type) continue;
+    const h = routeBlockHours(r, type, r.weeklyFrequency);
+    if (!(h > 0)) continue;
+    const d = turnDeviation(type, turnMinutesFor(type, r));
+    hours += h;
+    if (d < 0) short += -d * h;
+    else if (d > 0) long += d * h;
+  }
+  return hours > 0 ? { short: short / hours, long: long / hours, hours } : { short: 0, long: 0, hours: 0 };
+}
+
+/**
+ * The fleet's turn-time effects this week (models/turnTimes.js turnEffects):
+ * { short, long, hours, otpDelta, moraleLift }. Passenger and freight
+ * flying both count. All zero for a game on standard turns.
+ */
+const TURN_FX_MEMO = new WeakMap();
+export function turnTimeEffectsOf(state) {
+  // Memoised on the arrays it reads (state is never mutated in place), so a
+  // per-route caller (routeQualityBreakdown) pays one fleet scan, not one each.
+  const key = state?.routes;
+  if (key && typeof key === 'object') {
+    const hit = TURN_FX_MEMO.get(key);
+    if (hit && hit.fleet === state.fleet && hit.cargo === state.cargoRoutes
+        && hit.tt === state.turnTimes) return hit.v;
+    const v = turnTimeEffectsUncached(state);
+    TURN_FX_MEMO.set(key, { fleet: state.fleet, cargo: state.cargoRoutes, tt: state.turnTimes, v });
+    return v;
+  }
+  return turnTimeEffectsUncached(state);
+}
+
+/**
+ * state.labor with this week's turn-time on-time delta attached — what the
+ * tick hands laborEffects. For previews that should agree with the tick.
+ */
+export function laborWithTurnTimes(state) {
+  const d = turnTimeEffectsOf(state).otpDelta;
+  return Math.abs(d) > 1e-9 ? { ...(state?.labor ?? {}), turnOtpDelta: d } : (state?.labor ?? null);
+}
+
+function turnTimeEffectsUncached(state) {
+  if (!state?.turnTimes && !(state?.routes ?? []).some(r => r?.schedule?.turnMin != null)
+      && !(state?.cargoRoutes ?? []).some(r => r?.schedule?.turnMin != null)) {
+    return { short: 0, long: 0, hours: 0, ...turnEffects({}) };
+  }
+  // This state's settings, whatever the module holds (a projection may run on
+  // a candidate state).
+  const prev = playerTurnTable();
+  setPlayerTurnTimes(state?.turnTimes ?? null);
+  try {
+    const mix = fleetTurnMix(state?.fleet ?? [], [
+      ...(state?.routes ?? []), ...(state?.cargoRoutes ?? []),
+    ]);
+    return { ...mix, ...turnEffects(mix) };
+  } finally {
+    setPlayerTurnTimes(prev ? { byClass: prev } : null);
+  }
+}
+
+/**
+ * Per turn class, what the fleet flies under the given settings (default:
+ * the state's own): { [classKey]: { aircraft, hours, sectors } } for every
+ * class with an in-service tail. `hours` are block hours a week (passenger
+ * and freight), `sectors` one-way flights a week. The Operations
+ * card compares two of these to show what a change frees or costs.
+ */
+export function turnTimeClassSummary(state, turnTimes = state?.turnTimes ?? null) {
+  const prev = playerTurnTable();
+  setPlayerTurnTimes(turnTimes);
+  try {
+    const out = {};
+    const typeById = new Map();
+    for (const a of state?.fleet ?? []) {
+      if (isOutOfService(a) || a.status === 'retired') continue;
+      const type = getAircraftType(a.typeId);
+      if (!type) continue;
+      typeById.set(a.id, type);
+      const k = turnClassKeyOf(type);
+      out[k] ??= { aircraft: 0, hours: 0, sectors: 0 };
+      out[k].aircraft++;
+    }
+    const ops = [...(state?.routes ?? []), ...(state?.cargoRoutes ?? [])];
+    for (const r of ops) {
+      const type = r?.aircraftId ? typeById.get(r.aircraftId) : null;
+      if (!type) continue;
+      const k = turnClassKeyOf(type);
+      out[k].hours += routeBlockHours(r, type, r.weeklyFrequency);
+      out[k].sectors += (r.weeklyFrequency ?? 0) * 2 * routeLegs(r).length;
+    }
+    return out;
+  } finally {
+    setPlayerTurnTimes(prev ? { byClass: prev } : null);
+  }
+}
+
+/**
+ * Would a turn-time change push any tail over its weekly block-hour cap?
+ * Runs the block-hour guard with the CANDIDATE settings (turnTimes, and the
+ * route tables carrying any per-route override) and returns the tails that
+ * end up over the cap and busier than before: [{ aircraftId, name, typeName,
+ * hours, before, cap }]. Empty means the change fits. Tails already over the
+ * cap before the change (an old 140h save) are not the change's doing.
+ */
+export function turnTimeBreaches(state, { turnTimes = state?.turnTimes ?? null, routes = state?.routes ?? [], cargoRoutes = state?.cargoRoutes ?? [] } = {}) {
+  const prev = playerTurnTable();
+  const cap = maxWeeklyBlockHoursFor(state);
+  const peaks = (rs, cs) => {
+    const out = new Map();
+    for (const a of state?.fleet ?? []) {
+      if (isOutOfService(a)) continue;
+      const type = getAircraftType(a.typeId);
+      if (type) out.set(a.id, committedPeakBlockHours(a.id, type, rs, cs));
+    }
+    return out;
+  };
+  let before, after;
+  try {
+    setPlayerTurnTimes(state?.turnTimes ?? null);
+    before = peaks(state?.routes ?? [], state?.cargoRoutes ?? []);
+    setPlayerTurnTimes(turnTimes);
+    after = peaks(routes, cargoRoutes);
+  } finally {
+    setPlayerTurnTimes(prev ? { byClass: prev } : null);
+  }
+  const breaches = [];
+  for (const a of state?.fleet ?? []) {
+    const h = after.get(a.id), b = before.get(a.id) ?? 0;
+    if (h == null || h <= cap + 1e-6 || h <= b + 1e-6) continue;
+    breaches.push({
+      aircraftId: a.id, name: a.tailNumber || a.name || a.id,
+      typeName: getAircraftType(a.typeId)?.name ?? '', hours: h, before: b, cap,
+    });
+  }
+  return breaches;
 }
 
 // ─────────────────────────────────────────────
@@ -2836,7 +2991,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
   // and tankering when the route asks for it and the tanks allow. Exactly 1
   // with the stations knob off, so classic worlds are byte-identical.
   const stationPlan = routeFuelStations(route, {
-    sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type),
+    sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type, route),
   });
   // Billed km per sector: the flown distance in a classic world; with v2's
   // per-departure take-off chunk in a new one (market.js sectorCostKm).
@@ -2889,7 +3044,7 @@ export function simulateRoute(route, aircraft, gameDate = { month: 6 }, labor = 
     ? Math.round(groundHandlingBase * (stationF - handlingF)) : 0;
 
   // Crew layover — when one-way block time > 4 hours
-  const blockTimeOneWay = blockTimeHours(dist, type);
+  const blockTimeOneWay = blockTimeHours(dist, type, route);
   const layoverCost = Math.round(
     weeklyLayoverCost(blockTimeOneWay, type.seats, type.category, route.weeklyFrequency) * layoverF
   );
@@ -3448,7 +3603,7 @@ export function simulateTagRoute(route, aircraft, gameDate = { month: 6 }, labor
   const loungeCost         = weeklyLoungeCost(classSummary, route.loungeContractFactor ?? 1);
   // Layover cost accrues per leg whose one-way block time clears the threshold.
   const layoverCostRaw = legDistKm.reduce(
-    (s, d) => s + weeklyLayoverCost(blockTimeHours(d, type), type.seats, type.category, f), 0);
+    (s, d) => s + weeklyLayoverCost(blockTimeHours(d, type, route), type.seats, type.category, f), 0);
   const layoverCost = Math.round(layoverCostRaw * layoverFT);
   const compensationCost = weeklyPassengerCompensation(totalPaxOneWay * 2, onTimeRate, totalDist);
 
@@ -3651,7 +3806,7 @@ export function simulateCargoRoute(route, aircraft, gameDate = { month: 6 }, lab
   const flights         = route.weeklyFrequency * 2;
   const aircraftFuelMod = aircraft.fuelMod ?? 1.0;
   const stationPlan = routeFuelStations(route, {
-    sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type),
+    sectorKm: dist, rangeKm: routeReachKm(route, aircraft, type), blockHours: blockTimeHours(dist, type, route),
   });
   const costKm    = sectorCostKm(type, dist);
   const fuelCost  = Math.round(costKm * fuelCostPerKm(type) * flights * fuelMultiplier * aircraftFuelMod * stationPlan.factor);
@@ -4938,6 +5093,7 @@ export function weeklyTick(state) {
   setNwrYieldChoke(state.newWorldRestrictions === true);
   // Demand model, pinned from THIS state for the same reason (absent = classic).
   setDemandModel(state.demandModel);
+  setPlayerTurnTimes(state.turnTimes);   // this airline's turn times (models/turnTimes.js)
   // The business cycle's lease-rate knob, for the same reason (1 outside v4).
   setLeaseCycleMult(cycleLeaseMult(state));
   // Market development (models/marketDev.js): this state's D table, or none.

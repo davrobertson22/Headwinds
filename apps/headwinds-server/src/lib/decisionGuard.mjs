@@ -33,6 +33,7 @@ import { cleanHex, normalizeAirlineCode } from '@tailwinds/engine/utils/logoBran
 import { HEDGE_DURATIONS, HEDGE_COVERAGES } from '@tailwinds/engine/utils/fuel.js';
 import { FUEL_PROGRAMME_MAP } from '@tailwinds/engine/data/fuelProgrammes.js';
 import { normalizeStarts, normalizeHubBankSetting, normalizeHold } from '@tailwinds/engine/models/schedule.js';
+import { TURN_CLASSES } from '@tailwinds/engine/models/turnTimes.js';
 import { CARGO_BULK_YIELD_BATCH, CARGO_BULK_YIELD_MODES, CARGO_BULK_PCT_MIN, CARGO_BULK_PCT_MAX, CARGO_BULK_DELTA_MAX } from '@tailwinds/engine/models/cargoYieldBulk.js';
 import { OG_NAME_PATTERN } from './worldService.mjs';
 
@@ -409,6 +410,33 @@ function guardSetRouteHolds(payload, state) {
   }
   if (Object.keys(holds).length === 0) throw new GuardError('Unknown route.');
   return { holds };
+}
+
+// Turn times (models/turnTimes.js): known classes only, each a number of
+// minutes or null (standard). The reducer steps, clamps and refuses a change
+// that would push a tail past its block-hour cap.
+const TURN_CLASS_KEYS = new Set(TURN_CLASSES.map((c) => c.key));
+function guardSetTurnTimes(payload) {
+  const want = payload?.byClass;
+  if (!want || typeof want !== 'object' || Array.isArray(want)) throw new GuardError('No turn times.');
+  const byClass = {};
+  for (const [k, v] of Object.entries(want)) {
+    if (!TURN_CLASS_KEYS.has(k)) continue;
+    if (v != null && (typeof v !== 'number' || !Number.isFinite(v))) throw new GuardError('A turn time is a number of minutes.');
+    byClass[k] = v == null ? null : v;
+  }
+  if (Object.keys(byClass).length === 0) throw new GuardError('Unknown aircraft class.');
+  return { byClass };
+}
+
+// One route's own turn: the route must be this airline's.
+function guardSetRouteTurn(payload, state) {
+  const routeId = payload?.routeId;
+  const own = [...(state?.routes ?? []), ...(state?.cargoRoutes ?? [])].some((r) => r?.id === routeId);
+  if (typeof routeId !== 'string' || !own) throw new GuardError('Unknown route.');
+  const v = payload?.turnMin;
+  if (v != null && (typeof v !== 'number' || !Number.isFinite(v))) throw new GuardError('A turn time is a number of minutes.');
+  return { routeId, turnMin: v == null ? null : v };
 }
 
 // Hub banks: only this airline's designated hubs, each setting cleaned (an
@@ -930,6 +958,8 @@ export function guardDecision(type, payload, state) {
     case 'SET_ROUTE_SCHEDULES': return guardSetRouteSchedules(payload, state);
     case 'SET_HUB_BANKS': return guardSetHubBanks(payload, state);
     case 'SET_ROUTE_HOLDS': return guardSetRouteHolds(payload, state);
+    case 'SET_TURN_TIMES': return guardSetTurnTimes(payload);
+    case 'SET_ROUTE_TURN': return guardSetRouteTurn(payload, state);
     case 'BUY_FUEL_STAKE':
     case 'BUILD_FUEL_FARM':
     case 'CLOSE_FUEL_FARM':     return guardFarmCode(payload);

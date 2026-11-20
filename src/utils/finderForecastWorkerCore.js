@@ -14,6 +14,7 @@
 import { finderForecastContext, forecastCandidate } from '../models/routeFinder.js';
 import { setDemandModel } from './market.js';
 import { setMarketDev } from '../models/marketDev.js';
+import { setPlayerTurnTimes } from '../models/turnTimes.js';
 
 export function createForecastWorkerCore() {
   let heldId = null;
@@ -32,6 +33,7 @@ export function createForecastWorkerCore() {
       // state before pricing.
       setDemandModel(held.demandModel);
       setMarketDev(held);
+      setPlayerTurnTimes(held.turnTimes ?? null);   // this airline's turn times (models/turnTimes.js)
       const ctx = finderForecastContext(msg.ctx);
       const results = (msg.rows ?? []).map((r) => {
         try { return [r.key, forecastCandidate(held, r, ctx)]; }

@@ -47,6 +47,7 @@
 
 import {
   weekToGameDate, applyReserveCovers, isRouteActive, routeDistanceKm, routeStops,
+  turnTimeEffectsOf,
 } from './simulation.js';
 import { completeCheck } from '../data/maintenance.js';
 import { completeConversion } from '../data/conversions.js';
@@ -304,9 +305,14 @@ export function prepareWeek(state, {
   const reserveOtp = state.crewPipeline
     ? reserveOtpBonus(state.labor, state.fleet ?? [], (a) => getAircraftType(a.typeId))
     : 0;
-  const laborThisWeek = (eventOtpDelta > 0 || crewShort || stationOtp > 0 || reserveOtp > 0)
+  // Turn times (models/turnTimes.js): signed, and zero — no field — on
+  // standard turns, so an untouched game's labor object is byte-identical.
+  const turnFx = turnTimeEffectsOf(state);
+  const turnOtp = Math.abs(turnFx.otpDelta) > 1e-9 ? turnFx.otpDelta : 0;
+  const laborThisWeek = (eventOtpDelta > 0 || crewShort || stationOtp > 0 || reserveOtp > 0 || turnOtp !== 0)
     ? {
         ...(state.labor ?? {}),
+        ...(turnOtp !== 0 ? { turnOtpDelta: turnOtp } : {}),
         ...(eventOtpDelta > 0 ? { eventOtpDelta } : {}),
         ...(crewShort ? { crewShortfall: crewShort } : {}),
         ...(stationOtp > 0 ? { stationOtpBonus: stationOtp } : {}),
